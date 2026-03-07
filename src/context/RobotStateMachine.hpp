@@ -51,17 +51,17 @@ public:
            .markType      = MapPoint::MarkType::STOP_COMMAND_MARK});
     }
 
-    if(motorDriver == nullptr || vacuumDriver == nullptr) {
-      ESP_LOGI("RobotStateMachine", "Invalid state transition to idle");
-      setState(RobotState::IDLE);
-      return true;
-    }
+    // if(motorDriver == nullptr || vacuumDriver == nullptr) {
+    //   ESP_LOGI("RobotStateMachine", "Invalid state transition to idle");
+    //   setState(RobotState::IDLE);
+    //   return true;
+    // }
 
     ESP_LOGI("RobotStateMachine", "Transitioning to idle");
     setState(RobotState::IDLE);
     motorDriver->pwmOutput(0, 0);
     vacuumDriver->pwmOutput(0);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
     return true;
   }
 
@@ -75,19 +75,19 @@ public:
     }
     if(encoderLeftDriver == nullptr || encoderRightDriver == nullptr ||
        vacuumDriver == nullptr) {
-      ESP_LOGI("RobotStateMachine", "Transitioning to running");
-      setState(RobotState::RUNNING);
-      return true;
+      ESP_LOGI("RobotStateMachine", "Driver not initialized");
+      return false;
     }
 
     ESP_LOGI("RobotStateMachine", "Transitioning to running");
-    setState(RobotState::RUNNING);
     encoderLeftDriver->clearCount();
     encoderRightDriver->clearCount();
 
     vTaskDelay(4000 / portTICK_PERIOD_MS);
     vacuumDriver->pwmOutput(globalData.mapData[0].baseVacuumPWM);
     vTaskDelay(1000);
+    setState(RobotState::RUNNING);
+
     return true;
   }
 
@@ -103,17 +103,15 @@ public:
 
     if(encoderLeftDriver == nullptr || encoderRightDriver == nullptr ||
        vacuumDriver == nullptr) {
-      ESP_LOGI("RobotStateMachine", "Transitioning to mapping");
-      setState(RobotState::MAPPING);
-      globalData.mapData.clear();
-      return true;
+      ESP_LOGI("RobotStateMachine", "Driver not initialized");
+      return false;
     }
 
     ESP_LOGI("RobotStateMachine", "Transitioning to mapping");
-    setState(RobotState::MAPPING);
     globalData.mapData.clear();
     encoderLeftDriver->clearCount();
     encoderRightDriver->clearCount();
+    setState(RobotState::MAPPING);
 
     return true;
   }

@@ -11,7 +11,7 @@ const int32_t MAX_SPEED          = 4;
 const int32_t MAX_DECELERATION   = 4;
 const int32_t MAX_ROTATION_SPEED = 4;
 
-const int32_t MAPPING_MOTOR_PWM = 10;
+const int32_t MAPPING_MOTOR_PWM = 15;
 const int32_t BASE_VACUUM_PWM   = 100;
 
 const int32_t MAX_MOTOR_PWM = 66;

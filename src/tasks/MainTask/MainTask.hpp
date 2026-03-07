@@ -44,11 +44,11 @@ void mainTaskLoop(void *params) {
   // Load mapData from storage, use defaults if file doesn't exist
   std::vector<MapPoint> default_map_data = {
       {.encoderMilimeters = 0,
-       .baseMotorPWM      = 10,
+       .baseMotorPWM      = 15,
        .baseVacuumPWM     = 100,
        .markType          = MapPoint::MarkType::UNKNOWN_MARK},
       {.encoderMilimeters = 28800,
-       .baseMotorPWM      = 0,
+       .baseMotorPWM      = 15,
        .baseVacuumPWM     = 100,
        .markType          = MapPoint::MarkType::UNKNOWN_MARK},
   };
@@ -161,6 +161,9 @@ void mainTaskLoop(void *params) {
         // Condição de parada
         if(encoderMilimetersAverage > finishLineCount ||
            RobotStateMachine::get() != RobotState::RUNNING) {
+          globalData.motorDriver->pwmOutput(0, 0);
+          globalData.vacuumDriver->pwmOutput(0);
+
           RobotStateMachine::toIdle(globalData.motorDriver,
                                     globalData.vacuumDriver);
           break; // Back to outer loop (IDLE branch)
@@ -239,6 +242,9 @@ void mainTaskLoop(void *params) {
 
         // Condição de parada
         if(RobotStateMachine::get() != RobotState::MAPPING) {
+          globalData.motorDriver->pwmOutput(0, 0);
+          globalData.vacuumDriver->pwmOutput(0);
+
           RobotStateMachine::toIdle(globalData.motorDriver,
                                     globalData.vacuumDriver);
           break; // Back to outer loop (IDLE branch)
@@ -334,6 +340,8 @@ void mainTaskLoop(void *params) {
       }
     } else {
       // IDLE or other state: keep task alive and re-check state periodically
+      globalData.motorDriver->pwmOutput(0, 0);
+      globalData.vacuumDriver->pwmOutput(0);
       vTaskDelay(100 / portTICK_PERIOD_MS);
     }
   }
