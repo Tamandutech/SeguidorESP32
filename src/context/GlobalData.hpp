@@ -32,26 +32,38 @@ struct Message {
 struct MapPoint {
   int32_t encoderMilimeters;
   int32_t baseMotorPWM;
+  int32_t baseVacuumPWM;
+  enum MarkType {
+    LEFT_MARK,
+    RIGHT_MARK,
+    HANDMADE_MARK,
+    STOP_COMMAND_MARK,
+    UNKNOWN_MARK
+  } markType;
+};
+
+struct ParametersConfig {
+  bool runOnMappingMode;
 };
 
 struct GlobalData {
   // FreeRTOS queue for inter-task communication
   QueueHandle_t communicationQueue;
 
+
   /* Communication should only write on the variables below when the robot is in
    * IDLE mode */
 
-  std::atomic<int32_t> finishLineCount = 14900;
-
-  std::vector<MapPoint> mapData = {
-      {.encoderMilimeters = 0, .baseMotorPWM = 10},
-      // {.encoderMilimeters = 28000, .baseMotorPWM = 40},
-      // {.encoderMilimeters = 28800, .baseMotorPWM = 35},
-  };
+  std::vector<MapPoint> mapData;
 
   std::atomic<int32_t> markCount = 0;
 
-  // Pins and drivers (initialized in MainTask during calibration mode)
+  std::atomic<int32_t> mappingEncoderMilimetersAverage = 0;
+
+  /* Initialized in MainTask during calibration mode */
+
+  ParametersConfig parametersConfig;
+
   MotorPins    motorPins   = {};
   MotorDriver *motorDriver = nullptr;
 

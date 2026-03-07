@@ -82,7 +82,7 @@ void processMessage(const Message &msg) {
 
 void communicationTaskLoop(void *params) {
   (void)params;
-  nordic_uart_start("TT_SEGUIDOR", uartStatusChangeCallback);
+  nordic_uart_start("TT_SEMREH", uartStatusChangeCallback);
   nordic_uart_yield(uartReceiveCallback);
 
   Message receivedMessage;

@@ -2,6 +2,7 @@
 #define CLI_HPP
 
 #include "esp_log.h"
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -15,12 +16,17 @@
 #include "context/RobotStateMachine.hpp"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
+#include "storage/storage.hpp"
 
 // CLI return codes
 #define CLI_SUCCESS                 0
 #define CLI_ERROR_EMPTY_COMMAND     1
 #define CLI_ERROR_COMMAND_NOT_FOUND 2
 #define CLI_ERROR_TOO_MANY_ARGS     3
+
+// Storage files
+#define MAP_STORAGE_FILE       "map_data.dat"
+#define PARAMETERS_CONFIG_FILE "parameters_config.dat"
 
 // Parse error codes for className.parameterName format
 enum class ParseError {
@@ -94,25 +100,11 @@ ParseError parseClassNameParameter(const char *input, ParsedReference &result) {
 // Helper function to get parameter value as string
 bool getParameterValue(const char *className, const char *parameterName,
                        char *valueBuffer, size_t bufferSize) {
-  // System parameters
-  if(strcmp(className, "System") == 0) {
-    if(strcmp(parameterName, "finishLineCount") == 0) {
-      snprintf(valueBuffer, bufferSize, "%ld",
-               globalData.finishLineCount.load(std::memory_order_relaxed));
-      return true;
-    }
-    if(strcmp(parameterName, "markCount") == 0) {
-      snprintf(valueBuffer, bufferSize, "%ld",
-               globalData.markCount.load(std::memory_order_relaxed));
-      return true;
-    }
-  }
-
   // State parameters
   if(strcmp(className, "State") == 0) {
-    if(strcmp(parameterName, "robotMode") == 0) {
-      RobotState state = RobotStateMachine::get();
-      snprintf(valueBuffer, bufferSize, "%d", static_cast<int>(state));
+    if(strcmp(parameterName, "runOnMappingMode") == 0) {
+      snprintf(valueBuffer, bufferSize, "%d",
+               globalData.parametersConfig.runOnMappingMode ? 1 : 0);
       return true;
     }
   }
@@ -128,35 +120,15 @@ bool setParameterValue(const char *className, const char *parameterName,
   bool        isNegative  = (value[0] == '!');
   const char *actualValue = isNegative ? value + 1 : value;
 
-  // System parameters
-  if(strcmp(className, "System") == 0) {
-    if(strcmp(parameterName, "finishLineCount") == 0) {
-      int32_t val = atoi(actualValue);
-      if(isNegative) val = -val;
-      globalData.finishLineCount.store(val, std::memory_order_relaxed);
-      return true;
-    }
-    if(strcmp(parameterName, "markCount") == 0) {
-      int32_t val = atoi(actualValue);
-      if(isNegative) val = -val;
-      globalData.markCount.store(val, std::memory_order_relaxed);
-      return true;
-    }
-  }
-
   // State parameters
   if(strcmp(className, "State") == 0) {
-    if(strcmp(parameterName, "robotMode") == 0) {
+    if(strcmp(parameterName, "runOnMappingMode") == 0) {
       int val = atoi(actualValue);
-      if(val == 0)
-        RobotStateMachine::toIdle(globalData.motorDriver,
-                                  globalData.vacuumDriver);
-      else if(val == 1) {
-        RobotStateMachine::toRunning(globalData.encoderLeftDriver,
-                                     globalData.encoderRightDriver,
-                                     globalData.vacuumDriver);
-      } else if(val == 2)
-        RobotStateMachine::toCalibration();
+      if(val == 1)
+        globalData.parametersConfig.runOnMappingMode = true;
+      else {
+        globalData.parametersConfig.runOnMappingMode = false;
+      }
       return true;
     }
   }
@@ -172,21 +144,19 @@ typedef int (*CommandHandler)(int argc, char *argv[]);
 
 // Parameter Commands
 static int handleParamList(int argc, char *argv[]) {
-  pushMessageToQueue("Parameters:\n");
-  int index = 0;
+  std::string list;
+  int         count = 0;
+  char        value[64];
 
-  char value[64];
-  if(getParameterValue("System", "finishLineCount", value, sizeof(value))) {
-    pushMessageToQueue("  %d - System.finishLineCount: %s\n", index++, value);
-  }
-  if(getParameterValue("System", "markCount", value, sizeof(value))) {
-    pushMessageToQueue("  %d - System.markCount: %s\n", index++, value);
-  }
-
-  if(getParameterValue("State", "robotMode", value, sizeof(value))) {
-    pushMessageToQueue("  %d - State.robotMode: %s\n", index++, value);
+  if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
+    char line[128];
+    snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n", count++,
+             value);
+    list += line;
   }
 
+  std::string out = "Parameters: " + std::to_string(count) + "\n" + list;
+  pushDataJsonToQueue("%s", out.c_str());
   return CLI_SUCCESS;
 }
 
@@ -206,7 +176,7 @@ static int handleParamGet(int argc, char *argv[]) {
   char value[64];
   if(getParameterValue(ref.className, ref.parameterName, value,
                        sizeof(value))) {
-    pushMessageToQueue("%s", value);
+    pushDataJsonToQueue("%s", value);
     return CLI_SUCCESS;
   } else {
     ESP_LOGW("CLI", "Parameter not found: %s.%s\n", ref.className,
@@ -229,6 +199,13 @@ static int handleParamSet(int argc, char *argv[]) {
   }
 
   if(setParameterValue(ref.className, ref.parameterName, argv[2])) {
+    Storage *storage = Storage::getInstance();
+    if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
+       ESP_OK) {
+      ESP_LOGW("CLI", "Failed to save parameters to %s",
+               PARAMETERS_CONFIG_FILE);
+    }
+    pushDataJsonToQueue("OK");
     return CLI_SUCCESS;
   } else {
     ESP_LOGW("CLI", "Parameter not found or cannot be set: %s.%s\n",
@@ -238,13 +215,25 @@ static int handleParamSet(int argc, char *argv[]) {
 }
 
 // Mapping Commands
+
+
 static int handleMapClear(int argc, char *argv[]) {
   globalData.mapData.clear();
+  pushDataJsonToQueue("OK");
   return CLI_SUCCESS;
 }
 
 static int handleMapClearFlash(int argc, char *argv[]) {
-  globalData.mapData.clear();
+  Storage              *storage = Storage::getInstance();
+  std::vector<MapPoint> emptyMap;
+  esp_err_t             ret = storage->write_vector(emptyMap, MAP_STORAGE_FILE);
+  if(ret != ESP_OK) {
+    ESP_LOGE("CLI", "map_clearFlash: failed to clear Flash (%s)",
+             esp_err_to_name(ret));
+    pushDataJsonToQueue("Error: Failed to clear Flash");
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  pushDataJsonToQueue("OK");
   return CLI_SUCCESS;
 }
 
@@ -266,8 +255,10 @@ static int handleMapAdd(int argc, char *argv[]) {
     if(sscanf(record, "%d,%d,%d,%d,%d", &id, &time, &encMedia, &trackStatus,
               &offset) == 5) {
       MapPoint point;
-      point.encoderMilimeters = encMedia;
-      point.baseMotorPWM      = offset;
+      point.encoderMilimeters = static_cast<int32_t>(encMedia);
+      point.baseMotorPWM      = static_cast<int32_t>(offset);
+      point.baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM;
+      point.markType          = MapPoint::MarkType::HANDMADE_MARK;
       globalData.mapData.push_back(point);
       addedCount++;
     }
@@ -275,6 +266,11 @@ static int handleMapAdd(int argc, char *argv[]) {
   }
 
   if(addedCount > 0) {
+    std::sort(globalData.mapData.begin(), globalData.mapData.end(),
+              [](const MapPoint &a, const MapPoint &b) {
+                return a.encoderMilimeters < b.encoderMilimeters;
+              });
+    pushDataJsonToQueue("OK");
     return CLI_SUCCESS;
   } else {
     ESP_LOGW("CLI", "Failed to parse any mapping records\n");
@@ -282,47 +278,63 @@ static int handleMapAdd(int argc, char *argv[]) {
   }
 }
 
-static int handleMapSaveRuntime(int argc, char *argv[]) { return CLI_SUCCESS; }
+static int handleMapSaveRuntime(int argc, char *argv[]) {
+  Storage  *storage = Storage::getInstance();
+  esp_err_t ret = storage->write_vector(globalData.mapData, MAP_STORAGE_FILE);
+  if(ret != ESP_OK) {
+    ESP_LOGE("CLI", "map_SaveRuntime: failed to save to Flash (%s)",
+             esp_err_to_name(ret));
+    pushDataJsonToQueue("Error: Failed to save to Flash");
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  pushDataJsonToQueue("OK");
+  return CLI_SUCCESS;
+}
 
 static int handleMapGet(int argc, char *argv[]) {
-  if(globalData.mapData.empty()) {
-    return CLI_SUCCESS;
-  }
-
+  std::string out;
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    pushMessageToQueue("%zu,%d,%ld,%d,%ld\n", i, 0, point.encoderMilimeters, 1,
-                       point.baseMotorPWM);
+    char            line[64];
+    snprintf(line, sizeof(line), "%zu,%d,%ld,%d,%ld\n", i, 0,
+             point.encoderMilimeters, point.markType, point.baseMotorPWM);
+    out += line;
+  }
+  if(!out.empty()) {
+    pushDataJsonToQueue("%s", out.c_str());
   }
   return CLI_SUCCESS;
 }
 
 static int handleMapGetRuntime(int argc, char *argv[]) {
-  if(globalData.mapData.empty()) {
-    return CLI_SUCCESS;
-  }
-
+  std::string out;
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    pushMessageToQueue("%zu,%d,%ld,%d,%ld\n", i, 0, point.encoderMilimeters, 1,
-                       point.baseMotorPWM);
+    char            line[64];
+    snprintf(line, sizeof(line), "%zu,%d,%ld,%d,%ld\n", i, 0,
+             point.encoderMilimeters, point.markType, point.baseMotorPWM);
+    out += line;
+  }
+  if(!out.empty()) {
+    pushDataJsonToQueue("%s", out.c_str());
   }
   return CLI_SUCCESS;
 }
 
 // Runtime Commands
 static int handleRuntimeList(int argc, char *argv[]) {
-  pushMessageToQueue("Runtime Parameters:\n");
-  int index = 0;
-
-  char value[64];
-  if(getParameterValue("State", "robotMode", value, sizeof(value))) {
-    pushMessageToQueue("  %d - State.robotMode: %s\n", index++, value);
+  std::string list;
+  int         count = 0;
+  char        value[64];
+  if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
+    char line[128];
+    snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n", count++,
+             value);
+    list += line;
   }
-  if(getParameterValue("System", "markCount", value, sizeof(value))) {
-    pushMessageToQueue("  %d - System.markCount: %s\n", index++, value);
-  }
-
+  std::string out =
+      "Runtime Parameters: " + std::to_string(count) + "\n" + list;
+  pushDataJsonToQueue("%s", out.c_str());
   return CLI_SUCCESS;
 }
 
@@ -333,9 +345,15 @@ static int handlePause(int argc, char *argv[]) {
 }
 
 static int handleResume(int argc, char *argv[]) {
-  RobotStateMachine::toRunning(globalData.encoderLeftDriver,
-                               globalData.encoderRightDriver,
-                               globalData.vacuumDriver);
+  if(globalData.parametersConfig.runOnMappingMode) {
+    RobotStateMachine::toMapping(globalData.encoderLeftDriver,
+                                 globalData.encoderRightDriver,
+                                 globalData.vacuumDriver);
+  } else {
+    RobotStateMachine::toRunning(globalData.encoderLeftDriver,
+                                 globalData.encoderRightDriver,
+                                 globalData.vacuumDriver);
+  }
   return CLI_SUCCESS;
 }
 
@@ -379,7 +397,7 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
 static int handleBatVoltage(int argc, char *argv[]) {
   adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
   if(adc_handle == nullptr) {
-    pushMessageToQueue("{\"data\": \"0.0\"}");
+    pushDataJsonToQueue("0.0");
     return CLI_SUCCESS;
   }
 
@@ -389,13 +407,13 @@ static int handleBatVoltage(int argc, char *argv[]) {
   if(ret != ESP_OK) {
     ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
              esp_err_to_name(ret));
-    pushMessageToQueue("{\"data\": \"0.0\"}");
+    pushDataJsonToQueue("0.0");
     return CLI_SUCCESS;
   }
 
   uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
 
-  pushMessageToQueue("{\"data\": \"%d.0\"}", voltage_mv);
+  pushDataJsonToQueue("%d.0", voltage_mv);
   return CLI_SUCCESS;
 }
 
