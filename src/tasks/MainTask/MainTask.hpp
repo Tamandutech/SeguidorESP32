@@ -26,7 +26,7 @@ void mainTaskLoop(void *params) {
   }
 
   // Load parametersConfig from storage, use defaults if file doesn't exist
-  ParametersConfig default_parameters_config = {.runOnMappingMode = true};
+  ParametersConfig default_parameters_config = {.runOnMappingMode = false};
   if(storage->file_exists("parameters_config.dat")) {
     esp_err_t read_result =
         storage->read(globalData.parametersConfig, "parameters_config.dat");
