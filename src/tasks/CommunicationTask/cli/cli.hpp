@@ -109,6 +109,15 @@ bool getParameterValue(const char *className, const char *parameterName,
     }
   }
 
+  // Vacuum parameters
+  if(strcmp(className, "Vacuum") == 0) {
+    if(strcmp(parameterName, "speed") == 0) {
+      snprintf(valueBuffer, bufferSize, "%ld",
+               (long)globalData.parametersConfig.vacuumPWM);
+      return true;
+    }
+  }
+
   // TODO: Add more parameter classes (PID, etc.) as they become available
   return false;
 }
@@ -133,6 +142,16 @@ bool setParameterValue(const char *className, const char *parameterName,
     }
   }
 
+  if(strcmp(className, "Vacuum") == 0) {
+    if(strcmp(parameterName, "speed") == 0) {
+      int val = atoi(actualValue);
+      if(val < 0) val = 0;
+      if(val > 100) val = 100;
+      globalData.parametersConfig.vacuumPWM = static_cast<int32_t>(val);
+      return true;
+    }
+  }
+
   // TODO: Add more parameter classes (PID, etc.) as they become available
   return false;
 }
@@ -152,6 +171,11 @@ static int handleParamList(int argc, char *argv[]) {
     char line[128];
     snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n", count++,
              value);
+    list += line;
+  }
+  if(getParameterValue("Vacuum", "speed", value, sizeof(value))) {
+    char line[128];
+    snprintf(line, sizeof(line), " %d - Vacuum.speed: %s\n", count++, value);
     list += line;
   }
 

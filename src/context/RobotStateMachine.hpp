@@ -10,6 +10,7 @@
 #include "context/GlobalData.hpp"
 #include "context/RobotEnv.hpp"
 #include "drivers/EncoderDriver/EncoderDriver.hpp"
+// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
 #include "drivers/MotorDriver/MotorDriver.hpp"
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 
@@ -38,30 +39,16 @@ public:
       return false;
     }
 
-    if(last == RobotState::MAPPING) {
-      ESP_LOGI("RobotStateMachine", "Stopped at encoder milimeters: %d",
-               globalData.mappingEncoderMilimetersAverage.load(
-                   std::memory_order_relaxed));
-
-      globalData.mapData.push_back(
-          {.encoderMilimeters = globalData.mappingEncoderMilimetersAverage.load(
-               std::memory_order_relaxed),
-           .baseMotorPWM  = RobotEnv::MAPPING_MOTOR_PWM,
-           .baseVacuumPWM = RobotEnv::BASE_VACUUM_PWM,
-           .markType      = MapPoint::MarkType::STOP_COMMAND_MARK});
-    }
-
-    // if(motorDriver == nullptr || vacuumDriver == nullptr) {
-    //   ESP_LOGI("RobotStateMachine", "Invalid state transition to idle");
-    //   setState(RobotState::IDLE);
-    //   return true;
-    // }
-
     ESP_LOGI("RobotStateMachine", "Transitioning to idle");
     setState(RobotState::IDLE);
     motorDriver->pwmOutput(0, 0);
     vacuumDriver->pwmOutput(0);
-
+    // if(globalData.ledCommandQueue != nullptr) {
+    //   LedCommand cmd = {.type     = LedCommandType::ENTER_IDLE,
+    //                     .ledIndex = 0,
+    //                     .color    = LED_COLOR_BLACK};
+    //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+    // }
     return true;
   }
 
@@ -83,11 +70,20 @@ public:
     encoderLeftDriver->clearCount();
     encoderRightDriver->clearCount();
 
-    vTaskDelay(4000 / portTICK_PERIOD_MS);
-    vacuumDriver->pwmOutput(globalData.mapData[0].baseVacuumPWM);
-    vTaskDelay(1000);
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+    // if(last == RobotState::IDLE && globalData.ledCommandQueue != nullptr) {
+    //   LedCommand cmd = {.type     = LedCommandType::EXIT_IDLE,
+    //                     .ledIndex = 0,
+    //                     .color    = LED_COLOR_BLACK};
+    //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+    // }
     setState(RobotState::RUNNING);
-
+    // if(globalData.ledCommandQueue != nullptr) {
+    //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
+    //                     .ledIndex = 0,
+    //                     .color    = LED_COLOR_GREEN};
+    //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+    // }
     return true;
   }
 
@@ -111,6 +107,12 @@ public:
     globalData.mapData.clear();
     encoderLeftDriver->clearCount();
     encoderRightDriver->clearCount();
+    // if(last == RobotState::IDLE && globalData.ledCommandQueue != nullptr) {
+    //   LedCommand cmd = {.type     = LedCommandType::EXIT_IDLE,
+    //                     .ledIndex = 0,
+    //                     .color    = LED_COLOR_BLACK};
+    //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+    // }
     setState(RobotState::MAPPING);
 
     return true;

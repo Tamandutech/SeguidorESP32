@@ -12,6 +12,7 @@
 #include "storage/storage.hpp"
 // Tasks
 #include "tasks/CommunicationTask/CommunicationTask.hpp"
+// #include "tasks/LedTask/LedTask.hpp"
 #include "tasks/MainTask/MainTask.hpp"
 
 extern "C" {
@@ -28,6 +29,12 @@ void app_main() {
     return;
   }
 
+  // globalData.ledCommandQueue = xQueueCreate(10, sizeof(LedCommand));
+  // if(globalData.ledCommandQueue == NULL) {
+  //   ESP_LOGE("Main", "Failed to create LED command queue");
+  //   return;
+  // }
+
   // Storage::write(globalData.randomNumber.load(std::memory_order_relaxed));
   // Storage::write(globalData.randomChar.load(std::memory_order_relaxed));
   // Storage::write(globalData.randomFloat.load(std::memory_order_relaxed));
@@ -37,8 +44,9 @@ void app_main() {
   // Task
   // 1 word = 4 bytes
   // The stack depth is setup to 60000 words, which is 240KB.
-  // Core 0 Protocol
-  // Core 1 Application
+  // TaskHandle_t ledTaskHandle;
+  // xTaskCreatePinnedToCore(ledTaskLoop, "LedTask", 4096, NULL, 10,
+  //                         &ledTaskHandle, 0); // Run on Core 0
   TaskHandle_t communicationTaskHandle;
   xTaskCreatePinnedToCore(communicationTaskLoop, "CommunicationTask", 60000,
                           NULL, 15, &communicationTaskHandle,

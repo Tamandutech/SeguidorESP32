@@ -6,6 +6,7 @@
 
 #include "drivers/EncoderDriver/EncoderDriver.hpp"
 #include "drivers/IRSensorDriver/IRSensorDriver.hpp"
+// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
 #include "drivers/MotorDriver/MotorDriver.hpp"
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 
@@ -26,7 +27,8 @@ void mainTaskLoop(void *params) {
   }
 
   // Load parametersConfig from storage, use defaults if file doesn't exist
-  ParametersConfig default_parameters_config = {.runOnMappingMode = false};
+  ParametersConfig default_parameters_config = {.runOnMappingMode = false,
+                                                .vacuumPWM        = 0};
   if(storage->file_exists("parameters_config.dat")) {
     esp_err_t read_result =
         storage->read(globalData.parametersConfig, "parameters_config.dat");
@@ -47,7 +49,7 @@ void mainTaskLoop(void *params) {
        .baseMotorPWM      = 15,
        .baseVacuumPWM     = 100,
        .markType          = MapPoint::MarkType::UNKNOWN_MARK},
-      {.encoderMilimeters = 28800,
+      {.encoderMilimeters = 66000,
        .baseMotorPWM      = 15,
        .baseVacuumPWM     = 100,
        .markType          = MapPoint::MarkType::UNKNOWN_MARK},
@@ -119,9 +121,21 @@ void mainTaskLoop(void *params) {
     globalData.vacuumPins   = {.gpioPWM = RobotEnv::GPIO_PWM_VACUUM};
     globalData.vacuumDriver = new VacuumDriver(globalData.vacuumPins);
   }
+  // if(globalData.ledRgbDriver == nullptr) {
+  //   globalData.ledRgbPins   = {.gpioData =
+  //                                  (gpio_num_t)RobotEnv::GPIO_LED_STRIP_DATA,
+  //                              .numLeds = RobotEnv::NUM_LED_STRIP_LEDS};
+  //   globalData.ledRgbDriver = new LedRgbDriver(globalData.ledRgbPins);
+  // }
+  // if(globalData.ledCommandQueue != nullptr) {
+  //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
+  //                     .ledIndex = 0,
+  //                     .color    = LED_COLOR_ORANGE};
+  //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+  // }
 
   PathControllerParamSchema pathControllerParam = {
-      .constants      = {.kP = 0.016F, .kI = 0.00F, .kD = 0.07F},
+      .constants      = {.kP = 0.0145F, .kI = 0.00F, .kD = 0.065F},
       .sensorQuantity = 12,
       .sensorValues   = lineSensorValues,
       .maxAngle       = 45.0F, // Ângulo máximo de 45 graus
@@ -152,11 +166,12 @@ void mainTaskLoop(void *params) {
     if(RobotStateMachine::get() == RobotState::RUNNING) {
       for(;;) {
         int32_t encoderMilimetersAverage =
-            ((globalData.encoderLeftDriver->getCount() +
-              globalData.encoderRightDriver->getCount()) /
-             2) *
-            RobotEnv::WHEEL_CIRCUMFERENCE /
-            RobotEnv::ENCODER_PULSES_PER_ROTATION;
+            (((globalData.encoderLeftDriver->getCount() +
+               globalData.encoderRightDriver->getCount()) /
+              2) *
+             RobotEnv::WHEEL_CIRCUMFERENCE /
+             RobotEnv::ENCODER_PULSES_PER_ROTATION) *
+            -1;
 
         // Condição de parada
         if(encoderMilimetersAverage > finishLineCount ||
@@ -172,52 +187,60 @@ void mainTaskLoop(void *params) {
         globalData.irSensorDriver->readCalibrated(lineSensorValues,
                                                   sideSensorValues);
 
-        sideSensorReadCount++;
-        for(int i = 0; i < 4; i++) {
-          sideSensorAverage[i] += sideSensorValues[i];
-        }
+        // sideSensorReadCount++;
+        // for(int i = 0; i < 4; i++) {
+        //   sideSensorAverage[i] += sideSensorValues[i];
+        // }
 
-        if(sideSensorReadCount >= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT) {
-          for(int i = 0; i < 4; i++) {
-            sideSensorAverage[i] /= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT;
-          }
-          sideSensorReadCount = 0;
+        // if(sideSensorReadCount >= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT) {
+        //   for(int i = 0; i < 4; i++) {
+        //     sideSensorAverage[i] /= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT;
+        //   }
+        //   sideSensorReadCount = 0;
 
-          bool leftIsOnMark =
-              sideSensorAverage[0] < 200 || sideSensorAverage[1] < 200;
-          bool rightIsOnMark =
-              sideSensorAverage[2] < 200 || sideSensorAverage[3] < 200;
-          if(!leftIsOnMark && !rightIsOnMark) {
-            lastLeftReadIsOnMark  = false;
-            lastRightReadIsOnMark = false;
-          } else if(!leftIsOnMark && rightIsOnMark) {
-            if(!lastRightReadIsOnMark) {
-              lastLeftReadIsOnMark  = false;
-              lastRightReadIsOnMark = true;
-            }
-          } else if(leftIsOnMark && !rightIsOnMark) {
-            if(!lastLeftReadIsOnMark) {
-              globalData.markCount.store(
-                  globalData.markCount.load(std::memory_order_relaxed) + 1,
-                  std::memory_order_relaxed);
+        //   bool leftIsOnMark =
+        //       sideSensorAverage[0] < 200 || sideSensorAverage[1] < 200;
+        //   bool rightIsOnMark =
+        //       sideSensorAverage[2] < 200 || sideSensorAverage[3] < 200;
+        //   if(!leftIsOnMark && !rightIsOnMark) {
+        //     lastLeftReadIsOnMark  = false;
+        //     lastRightReadIsOnMark = false;
+        //   } else if(!leftIsOnMark && rightIsOnMark) {
+        //     if(!lastRightReadIsOnMark) {
+        //       lastLeftReadIsOnMark  = false;
+        //       lastRightReadIsOnMark = true;
+        //     }
+        //   } else if(leftIsOnMark && !rightIsOnMark) {
+        //     if(!lastLeftReadIsOnMark) {
+        //       globalData.markCount.store(
+        //           globalData.markCount.load(std::memory_order_relaxed) + 1,
+        //           std::memory_order_relaxed);
 
-              lastLeftReadIsOnMark  = true;
-              lastRightReadIsOnMark = false;
-            }
-          } else {
-            lastLeftReadIsOnMark  = true;
-            lastRightReadIsOnMark = true;
-          }
+        //       lastLeftReadIsOnMark  = true;
+        //       lastRightReadIsOnMark = false;
+        //     }
+        //   } else {
+        //     lastLeftReadIsOnMark  = true;
+        //     lastRightReadIsOnMark = true;
+        //   }
 
-          for(int i = 0; i < 4; i++) {
-            sideSensorAverage[i] = 0;
-          }
-        }
+        //   for(int i = 0; i < 4; i++) {
+        //     sideSensorAverage[i] = 0;
+        //   }
+        // }
 
         if(globalData.mapData[mapPointIndex].encoderMilimeters >
                encoderMilimetersAverage &&
            (mapPointIndex + 1) < globalData.mapData.size()) {
           mapPointIndex++;
+          // if(globalData.ledCommandQueue != nullptr) {
+          //   LedColor runColor =
+          //       (mapPointIndex % 2 == 1) ? LED_COLOR_GREEN : LED_COLOR_RED;
+          //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
+          //                     .ledIndex = 0,
+          //                     .color    = runColor};
+          //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+          // }
         }
 
         float pathPID = pathController->getPID();
@@ -226,24 +249,33 @@ void mainTaskLoop(void *params) {
             globalData.mapData[mapPointIndex].baseMotorPWM + pathPID,
             globalData.mapData[mapPointIndex].baseMotorPWM - pathPID);
 
+        // globalData.vacuumDriver->pwmOutput(
+        //     globalData.mapData[mapPointIndex].baseVacuumPWM);
         globalData.vacuumDriver->pwmOutput(
-            globalData.mapData[mapPointIndex].baseVacuumPWM);
+            globalData.parametersConfig.vacuumPWM);
 
         vTaskDelay(1 / portTICK_PERIOD_MS);
       }
     } else if(RobotStateMachine::get() == RobotState::MAPPING) {
       for(;;) {
         int32_t encoderMilimetersAverage =
-            ((globalData.encoderLeftDriver->getCount() +
-              globalData.encoderRightDriver->getCount()) /
-             2) *
-            RobotEnv::WHEEL_CIRCUMFERENCE /
-            RobotEnv::ENCODER_PULSES_PER_ROTATION;
+            (((globalData.encoderLeftDriver->getCount() +
+               globalData.encoderRightDriver->getCount()) /
+              2) *
+             RobotEnv::WHEEL_CIRCUMFERENCE /
+             RobotEnv::ENCODER_PULSES_PER_ROTATION) *
+            -1;
 
         // Condição de parada
         if(RobotStateMachine::get() != RobotState::MAPPING) {
           globalData.motorDriver->pwmOutput(0, 0);
           globalData.vacuumDriver->pwmOutput(0);
+
+          globalData.mapData.push_back(
+              {.encoderMilimeters = encoderMilimetersAverage,
+               .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+               .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
+               .markType          = MapPoint::MarkType::STOP_COMMAND_MARK});
 
           RobotStateMachine::toIdle(globalData.motorDriver,
                                     globalData.vacuumDriver);
@@ -282,6 +314,12 @@ void mainTaskLoop(void *params) {
                    .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
                    .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
                    .markType          = MapPoint::MarkType::RIGHT_MARK});
+              // if(globalData.ledCommandQueue != nullptr) {
+              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
+              //                     .ledIndex = 0,
+              //                     .color    = LED_COLOR_GREEN};
+              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+              // }
             }
           } else if(leftIsOnMark && !rightIsOnMark) {
             if(!lastLeftReadIsOnMark) {
@@ -297,6 +335,12 @@ void mainTaskLoop(void *params) {
 
               lastLeftReadIsOnMark  = true;
               lastRightReadIsOnMark = false;
+              // if(globalData.ledCommandQueue != nullptr) {
+              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
+              //                     .ledIndex = 2,
+              //                     .color    = LED_COLOR_GREEN};
+              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+              // }
             }
           } else {
             lastLeftReadIsOnMark  = true;
@@ -315,9 +359,8 @@ void mainTaskLoop(void *params) {
                                               pathPID);
 
         // printf("\033[2J\033[H");
-        // irSensorDriver->read(rawSensorValues);
         // for(int i = 0; i < 16; i++) {
-        //   printf("%4d ", rawSensorValues[i]);
+        //   printf("%4d ", lineSensorValues[i]);
         // }
         // printf("L: ");
         // for(int i = 0; i < 12; i++) {
@@ -339,6 +382,13 @@ void mainTaskLoop(void *params) {
         vTaskDelay(1 / portTICK_PERIOD_MS);
       }
     } else {
+      // globalData.irSensorDriver->readCalibrated(lineSensorValues,
+      //                                           sideSensorValues);
+      // printf("\033[2J\033[H");
+      // for(int i = 0; i < 16; i++) {
+      //   printf("%4d ", lineSensorValues[i]);
+      // }
+
       // IDLE or other state: keep task alive and re-check state periodically
       globalData.motorDriver->pwmOutput(0, 0);
       globalData.vacuumDriver->pwmOutput(0);
