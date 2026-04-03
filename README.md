@@ -1,4 +1,4 @@
-# Seguidor Semreh
+# Seguidor ESP32
 
 Template with developer experience setup. PlatformIO + Cpp + CI/CD + Linter + Formatter.
 
