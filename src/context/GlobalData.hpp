@@ -31,9 +31,9 @@ struct Message {
 };
 
 struct MapPoint {
-  int32_t encoderMilimeters;
-  int32_t baseMotorPWM;
-  int32_t baseVacuumPWM;
+  int32_t encoderMilimeters{};
+  int32_t baseMotorPWM{};
+  int32_t baseVacuumPWM{};
   enum MarkType {
     LEFT_MARK,
     RIGHT_MARK,
