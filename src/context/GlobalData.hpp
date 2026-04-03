@@ -44,8 +44,8 @@ struct MapPoint {
 };
 
 struct ParametersConfig {
-  bool    runOnMappingMode;
-  int32_t vacuumPWM;
+  bool    runOnMappingMode{};
+  int32_t vacuumPWM{};
 };
 
 // LED task command types (used by LedTask on core 0)
