@@ -2,62 +2,140 @@
 #define MAIN_TASK_HPP
 
 #include "context/GlobalData.hpp"
+#include "context/RobotStateMachine.hpp"
 
 #include "drivers/EncoderDriver/EncoderDriver.hpp"
 #include "drivers/IRSensorDriver/IRSensorDriver.hpp"
+// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
 #include "drivers/MotorDriver/MotorDriver.hpp"
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 
+#include "storage/storage.hpp"
+
 #include "tasks/MainTask/PathController/PathController.hpp"
 
-struct MainTaskParamSchema {
-  GlobalData &globalData;
-};
 
 void mainTaskLoop(void *params) {
-  MainTaskParamSchema *param = static_cast<MainTaskParamSchema *>(params);
+  (void)params;
+  RobotStateMachine::toCalibration();
 
-  int32_t finishLineCount =
-      param->globalData.finishLineCount.load(std::memory_order_relaxed);
+  // Initialize storage and load configuration
+  Storage  *storage      = Storage::getInstance();
+  esp_err_t mount_result = storage->mount_storage("/data");
+  if(mount_result != ESP_OK) {
+    ESP_LOGW("MainTask", "Failed to mount storage, using hardcoded defaults");
+  }
+
+  // Load parametersConfig from storage, use defaults if file doesn't exist
+  ParametersConfig default_parameters_config = {.runOnMappingMode = false,
+                                                .vacuumPWM        = 0};
+  if(storage->file_exists("parameters_config.dat")) {
+    esp_err_t read_result =
+        storage->read(globalData.parametersConfig, "parameters_config.dat");
+    if(read_result != ESP_OK) {
+      ESP_LOGW("MainTask", "Failed to read parametersConfig, using defaults");
+      globalData.parametersConfig = default_parameters_config;
+    } else {
+      ESP_LOGI("MainTask", "Loaded parametersConfig from storage");
+    }
+  } else {
+    ESP_LOGI("MainTask", "parametersConfig file not found, using defaults");
+    globalData.parametersConfig = default_parameters_config;
+  }
+
+  // Load mapData from storage, use defaults if file doesn't exist
+  std::vector<MapPoint> default_map_data = {
+      {.encoderMilimeters = 0,
+       .baseMotorPWM      = 15,
+       .baseVacuumPWM     = 100,
+       .markType          = MapPoint::MarkType::UNKNOWN_MARK},
+      {.encoderMilimeters = 66000,
+       .baseMotorPWM      = 15,
+       .baseVacuumPWM     = 100,
+       .markType          = MapPoint::MarkType::UNKNOWN_MARK},
+  };
+  if(storage->file_exists("map_data.dat")) {
+    esp_err_t read_result =
+        storage->read_vector(globalData.mapData, "map_data.dat");
+    if(read_result != ESP_OK) {
+      ESP_LOGW("MainTask", "Failed to read mapData, using defaults");
+      globalData.mapData = default_map_data;
+    } else {
+      ESP_LOGI("MainTask", "Loaded mapData from storage (%zu points)",
+               globalData.mapData.size());
+    }
+  } else {
+    ESP_LOGI("MainTask", "mapData file not found, using defaults");
+    globalData.mapData = default_map_data;
+  }
+
+  // Set finishLineCount to the last point's encoderMilimeters from mapData
+  int32_t finishLineCount = 0;
+  if(!globalData.mapData.empty()) {
+    finishLineCount = globalData.mapData.back().encoderMilimeters;
+    ESP_LOGI("MainTask", "Set finishLineCount to %ld (last mapData point)",
+             finishLineCount);
+  } else {
+    ESP_LOGW("MainTask", "mapData is empty, finishLineCount set to 0");
+  }
 
   // uint16_t rawSensorValues[16];
   uint16_t sideSensorValues[4];
   uint16_t lineSensorValues[12];
 
-  MotorPins    motorPins   = {.gpioDirectionA = RobotEnv::GPIO_DIRECTION_A,
+  // Initialize pins and drivers in globalData during calibration mode
+  if(globalData.motorDriver == nullptr) {
+    globalData.motorPins   = {.gpioDirectionA = RobotEnv::GPIO_DIRECTION_A,
                               .gpioDirectionB = RobotEnv::GPIO_DIRECTION_B,
                               .gpioPWMA       = RobotEnv::GPIO_PWM_A,
                               .gpioPWMB       = RobotEnv::GPIO_PWM_B};
-  MotorDriver *motorDriver = new MotorDriver(motorPins);
-
-  IRSensorParamSchema irSensorParam = {
-      .pins             = {.gpioMultiplexerDigitalAddress =
-                               RobotEnv::GPIO_MULTIPLEXER_DIGITAL_ADDRESS,
-                           .gpioMultiplexerAnalogInput =
-                               RobotEnv::GPIO_MULTIPLEXER_ANALOG_INPUT},
-      .lineSensorsCount = 12,
-      .lineSensorsMultiplexerIndex =
-          RobotEnv::GPIO_MULTIPLEXER_LINE_SENSORS_INDEX,
-      .sideSensorsCount = 4,
-      .sideSensorsMultiplexerIndex =
-          RobotEnv::GPIO_MULTIPLEXER_SIDE_SENSORS_INDEX,
-      .multiplexerPinCount = 4,
-  };
-  IRSensorDriver *irSensorDriver = new IRSensorDriver(irSensorParam);
-
-  EncoderDriver *encoderLeftDriver  = new EncoderDriver();
-  EncoderDriver *encoderRightDriver = new EncoderDriver();
-
-  encoderLeftDriver->attachFullQuad(RobotEnv::GPIO_ENCODER_LEFT_A,
-                                    RobotEnv::GPIO_ENCODER_LEFT_B);
-  encoderRightDriver->attachFullQuad(RobotEnv::GPIO_ENCODER_RIGHT_A,
-                                     RobotEnv::GPIO_ENCODER_RIGHT_B);
-
-  VacuumPins    vacuumPins   = {.gpioPWM = RobotEnv::GPIO_PWM_VACUUM};
-  VacuumDriver *vacuumDriver = new VacuumDriver(vacuumPins);
+    globalData.motorDriver = new MotorDriver(globalData.motorPins);
+  }
+  if(globalData.irSensorDriver == nullptr) {
+    IRSensorParamSchema irSensorParam = {
+        .pins             = {.gpioMultiplexerDigitalAddress =
+                                 RobotEnv::GPIO_MULTIPLEXER_DIGITAL_ADDRESS,
+                             .gpioMultiplexerAnalogInput =
+                                 RobotEnv::GPIO_MULTIPLEXER_ANALOG_INPUT},
+        .lineSensorsCount = 12,
+        .lineSensorsMultiplexerIndex =
+            RobotEnv::GPIO_MULTIPLEXER_LINE_SENSORS_INDEX,
+        .sideSensorsCount = 4,
+        .sideSensorsMultiplexerIndex =
+            RobotEnv::GPIO_MULTIPLEXER_SIDE_SENSORS_INDEX,
+        .multiplexerPinCount = 4,
+    };
+    globalData.irSensorDriver = new IRSensorDriver(irSensorParam);
+  }
+  if(globalData.encoderLeftDriver == nullptr) {
+    globalData.encoderLeftDriver = new EncoderDriver();
+    globalData.encoderLeftDriver->attachFullQuad(RobotEnv::GPIO_ENCODER_LEFT_A,
+                                                 RobotEnv::GPIO_ENCODER_LEFT_B);
+  }
+  if(globalData.encoderRightDriver == nullptr) {
+    globalData.encoderRightDriver = new EncoderDriver();
+    globalData.encoderRightDriver->attachFullQuad(
+        RobotEnv::GPIO_ENCODER_RIGHT_A, RobotEnv::GPIO_ENCODER_RIGHT_B);
+  }
+  if(globalData.vacuumDriver == nullptr) {
+    globalData.vacuumPins   = {.gpioPWM = RobotEnv::GPIO_PWM_VACUUM};
+    globalData.vacuumDriver = new VacuumDriver(globalData.vacuumPins);
+  }
+  // if(globalData.ledRgbDriver == nullptr) {
+  //   globalData.ledRgbPins   = {.gpioData =
+  //                                  (gpio_num_t)RobotEnv::GPIO_LED_STRIP_DATA,
+  //                              .numLeds = RobotEnv::NUM_LED_STRIP_LEDS};
+  //   globalData.ledRgbDriver = new LedRgbDriver(globalData.ledRgbPins);
+  // }
+  // if(globalData.ledCommandQueue != nullptr) {
+  //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
+  //                     .ledIndex = 0,
+  //                     .color    = LED_COLOR_ORANGE};
+  //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+  // }
 
   PathControllerParamSchema pathControllerParam = {
-      .constants      = {.kP = 0.016F, .kI = 0.00F, .kD = 0.07F},
+      .constants      = {.kP = 0.0145F, .kI = 0.00F, .kD = 0.065F},
       .sensorQuantity = 12,
       .sensorValues   = lineSensorValues,
       .maxAngle       = 45.0F, // Ângulo máximo de 45 graus
@@ -65,8 +143,6 @@ void mainTaskLoop(void *params) {
       .sensorToCenter = 50, // Distância do sensor ao centro em mm
   };
   PathController *pathController = new PathController(pathControllerParam);
-
-  bool lastIsReadyToRun = false;
 
   bool lastLeftReadIsOnMark  = false;
   bool lastRightReadIsOnMark = false;
@@ -78,126 +154,246 @@ void mainTaskLoop(void *params) {
 
   ESP_LOGI("MainTask", "Calibrando os sensores...");
   for(int i = 0; i < 50; i++) {
-    irSensorDriver->calibrate();
+    globalData.irSensorDriver->calibrate();
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
   ESP_LOGI("MainTask", "Sensores calibrados");
 
-  vTaskDelay(5000 / portTICK_PERIOD_MS);
+  RobotStateMachine::toIdle(globalData.motorDriver, globalData.vacuumDriver);
+  ESP_LOGI("MainTask", "Escolha entre modo de mapeamento ou modo de corrida");
 
   for(;;) {
-    int32_t encoderMilimetersAverage =
-        ((encoderLeftDriver->getCount() + encoderRightDriver->getCount()) / 2) *
-        RobotEnv::WHEEL_CIRCUMFERENCE / 4095;
+    if(RobotStateMachine::get() == RobotState::RUNNING) {
+      for(;;) {
+        int32_t encoderMilimetersAverage =
+            (((globalData.encoderLeftDriver->getCount() +
+               globalData.encoderRightDriver->getCount()) /
+              2) *
+             RobotEnv::WHEEL_CIRCUMFERENCE /
+             RobotEnv::ENCODER_PULSES_PER_ROTATION) *
+            -1;
 
-    // Condição de parada controlada
-    if(!param->globalData.isReadyToRun.load(std::memory_order_relaxed) ||
-       encoderMilimetersAverage > finishLineCount) {
-      lastIsReadyToRun = false;
-      motorDriver->pwmOutput(0, 0);
-      vacuumDriver->pwmOutput(0);
-      // pushMessageToQueue(param->globalData, "Stopped at %ld",
-      //                    encoderMilimetersAverage);
-      vTaskDelay(1000 / portTICK_PERIOD_MS);
-      continue;
-    } else { // Condição de início controlada
-      if(param->globalData.isReadyToRun.load(std::memory_order_relaxed) !=
-         lastIsReadyToRun) {
-        lastIsReadyToRun = true;
+        // Condição de parada
+        if(encoderMilimetersAverage > finishLineCount ||
+           RobotStateMachine::get() != RobotState::RUNNING) {
+          globalData.motorDriver->pwmOutput(0, 0);
+          globalData.vacuumDriver->pwmOutput(0);
 
-        encoderLeftDriver->clearCount();
-        encoderRightDriver->clearCount();
-
-        finishLineCount =
-            param->globalData.finishLineCount.load(std::memory_order_relaxed);
-
-        vTaskDelay(4000 / portTICK_PERIOD_MS);
-        vacuumDriver->pwmOutput(RobotEnv::BASE_VACUUM_PWM);
-        vTaskDelay(1000);
-      }
-    }
-
-    irSensorDriver->readCalibrated(lineSensorValues, sideSensorValues);
-
-    sideSensorReadCount++;
-    for(int i = 0; i < 4; i++) {
-      sideSensorAverage[i] += sideSensorValues[i];
-    }
-
-    if(sideSensorReadCount >= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT) {
-      for(int i = 0; i < 4; i++) {
-        sideSensorAverage[i] /= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT;
-      }
-      sideSensorReadCount = 0;
-
-      bool leftIsOnMark =
-          sideSensorAverage[0] < 200 || sideSensorAverage[1] < 200;
-      bool rightIsOnMark =
-          sideSensorAverage[2] < 200 || sideSensorAverage[3] < 200;
-      if(!leftIsOnMark && !rightIsOnMark) {
-        lastLeftReadIsOnMark  = false;
-        lastRightReadIsOnMark = false;
-      } else if(!leftIsOnMark && rightIsOnMark) {
-        if(!lastRightReadIsOnMark) {
-          lastLeftReadIsOnMark  = false;
-          lastRightReadIsOnMark = true;
+          RobotStateMachine::toIdle(globalData.motorDriver,
+                                    globalData.vacuumDriver);
+          break; // Back to outer loop (IDLE branch)
         }
-      } else if(leftIsOnMark && !rightIsOnMark) {
-        if(!lastLeftReadIsOnMark) {
-          param->globalData.markCount.store(
-              param->globalData.markCount.load(std::memory_order_relaxed) + 1,
-              std::memory_order_relaxed);
 
-          lastLeftReadIsOnMark  = true;
-          lastRightReadIsOnMark = false;
+        globalData.irSensorDriver->readCalibrated(lineSensorValues,
+                                                  sideSensorValues);
+
+        // sideSensorReadCount++;
+        // for(int i = 0; i < 4; i++) {
+        //   sideSensorAverage[i] += sideSensorValues[i];
+        // }
+
+        // if(sideSensorReadCount >= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT) {
+        //   for(int i = 0; i < 4; i++) {
+        //     sideSensorAverage[i] /= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT;
+        //   }
+        //   sideSensorReadCount = 0;
+
+        //   bool leftIsOnMark =
+        //       sideSensorAverage[0] < 200 || sideSensorAverage[1] < 200;
+        //   bool rightIsOnMark =
+        //       sideSensorAverage[2] < 200 || sideSensorAverage[3] < 200;
+        //   if(!leftIsOnMark && !rightIsOnMark) {
+        //     lastLeftReadIsOnMark  = false;
+        //     lastRightReadIsOnMark = false;
+        //   } else if(!leftIsOnMark && rightIsOnMark) {
+        //     if(!lastRightReadIsOnMark) {
+        //       lastLeftReadIsOnMark  = false;
+        //       lastRightReadIsOnMark = true;
+        //     }
+        //   } else if(leftIsOnMark && !rightIsOnMark) {
+        //     if(!lastLeftReadIsOnMark) {
+        //       globalData.markCount.store(
+        //           globalData.markCount.load(std::memory_order_relaxed) + 1,
+        //           std::memory_order_relaxed);
+
+        //       lastLeftReadIsOnMark  = true;
+        //       lastRightReadIsOnMark = false;
+        //     }
+        //   } else {
+        //     lastLeftReadIsOnMark  = true;
+        //     lastRightReadIsOnMark = true;
+        //   }
+
+        //   for(int i = 0; i < 4; i++) {
+        //     sideSensorAverage[i] = 0;
+        //   }
+        // }
+
+        if(globalData.mapData[mapPointIndex].encoderMilimeters >
+               encoderMilimetersAverage &&
+           (mapPointIndex + 1) < globalData.mapData.size()) {
+          mapPointIndex++;
+          // if(globalData.ledCommandQueue != nullptr) {
+          //   LedColor runColor =
+          //       (mapPointIndex % 2 == 1) ? LED_COLOR_GREEN : LED_COLOR_RED;
+          //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
+          //                     .ledIndex = 0,
+          //                     .color    = runColor};
+          //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+          // }
         }
-      } else {
-        lastLeftReadIsOnMark  = true;
-        lastRightReadIsOnMark = true;
+
+        float pathPID = pathController->getPID();
+
+        globalData.motorDriver->pwmOutput(
+            globalData.mapData[mapPointIndex].baseMotorPWM + pathPID,
+            globalData.mapData[mapPointIndex].baseMotorPWM - pathPID);
+
+        // globalData.vacuumDriver->pwmOutput(
+        //     globalData.mapData[mapPointIndex].baseVacuumPWM);
+        globalData.vacuumDriver->pwmOutput(
+            globalData.parametersConfig.vacuumPWM);
+
+        vTaskDelay(1 / portTICK_PERIOD_MS);
       }
+    } else if(RobotStateMachine::get() == RobotState::MAPPING) {
+      for(;;) {
+        int32_t encoderMilimetersAverage =
+            (((globalData.encoderLeftDriver->getCount() +
+               globalData.encoderRightDriver->getCount()) /
+              2) *
+             RobotEnv::WHEEL_CIRCUMFERENCE /
+             RobotEnv::ENCODER_PULSES_PER_ROTATION) *
+            -1;
 
-      for(int i = 0; i < 4; i++) {
-        sideSensorAverage[i] = 0;
+        // Condição de parada
+        if(RobotStateMachine::get() != RobotState::MAPPING) {
+          globalData.motorDriver->pwmOutput(0, 0);
+          globalData.vacuumDriver->pwmOutput(0);
+
+          globalData.mapData.push_back(
+              {.encoderMilimeters = encoderMilimetersAverage,
+               .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+               .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
+               .markType          = MapPoint::MarkType::STOP_COMMAND_MARK});
+
+          RobotStateMachine::toIdle(globalData.motorDriver,
+                                    globalData.vacuumDriver);
+          break; // Back to outer loop (IDLE branch)
+        }
+
+        globalData.irSensorDriver->readCalibrated(lineSensorValues,
+                                                  sideSensorValues);
+
+        sideSensorReadCount++;
+        for(int i = 0; i < 4; i++) {
+          sideSensorAverage[i] += sideSensorValues[i];
+        }
+
+        if(sideSensorReadCount >= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT) {
+          for(int i = 0; i < 4; i++) {
+            sideSensorAverage[i] /= RobotEnv::SIDE_SENSOR_READ_AVERAGE_COUNT;
+          }
+          sideSensorReadCount = 0;
+
+          bool leftIsOnMark =
+              sideSensorAverage[0] < 200 || sideSensorAverage[1] < 200;
+          bool rightIsOnMark =
+              sideSensorAverage[2] < 200 || sideSensorAverage[3] < 200;
+          if(!leftIsOnMark && !rightIsOnMark) {
+            lastLeftReadIsOnMark  = false;
+            lastRightReadIsOnMark = false;
+          } else if(!leftIsOnMark && rightIsOnMark) {
+            if(!lastRightReadIsOnMark) {
+              lastLeftReadIsOnMark  = false;
+              lastRightReadIsOnMark = true;
+
+              ESP_LOGI("MainTask", "Mark found on the right side");
+              globalData.mapData.push_back(
+                  {.encoderMilimeters = encoderMilimetersAverage,
+                   .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+                   .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
+                   .markType          = MapPoint::MarkType::RIGHT_MARK});
+              // if(globalData.ledCommandQueue != nullptr) {
+              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
+              //                     .ledIndex = 0,
+              //                     .color    = LED_COLOR_GREEN};
+              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+              // }
+            }
+          } else if(leftIsOnMark && !rightIsOnMark) {
+            if(!lastLeftReadIsOnMark) {
+              globalData.markCount.store(
+                  globalData.markCount.load(std::memory_order_relaxed) + 1,
+                  std::memory_order_relaxed);
+
+              globalData.mapData.push_back(
+                  {.encoderMilimeters = encoderMilimetersAverage,
+                   .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+                   .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
+                   .markType          = MapPoint::MarkType::LEFT_MARK});
+
+              lastLeftReadIsOnMark  = true;
+              lastRightReadIsOnMark = false;
+              // if(globalData.ledCommandQueue != nullptr) {
+              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
+              //                     .ledIndex = 2,
+              //                     .color    = LED_COLOR_GREEN};
+              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
+              // }
+            }
+          } else {
+            lastLeftReadIsOnMark  = true;
+            lastRightReadIsOnMark = true;
+          }
+
+          for(int i = 0; i < 4; i++) {
+            sideSensorAverage[i] = 0;
+          }
+        }
+
+        float pathPID = pathController->getPID();
+
+        globalData.motorDriver->pwmOutput(RobotEnv::MAPPING_MOTOR_PWM + pathPID,
+                                          RobotEnv::MAPPING_MOTOR_PWM -
+                                              pathPID);
+
+        // printf("\033[2J\033[H");
+        // for(int i = 0; i < 16; i++) {
+        //   printf("%4d ", lineSensorValues[i]);
+        // }
+        // printf("L: ");
+        // for(int i = 0; i < 12; i++) {
+        //   printf("%4d ", lineSensorValues[i]);
+        // }
+        // printf("S: ");
+        // for(int i = 0; i < 4; i++) {
+        //   printf("%4d ", sideSensorValues[i]);
+        // }
+        // printf("\n");
+        // printf("Base Motor PWM: %ld\n",
+        //        globalData.mapData[mapPointIndex].baseMotorPWM);
+        // printf("Path PID: %f\n", pathPID);
+        // printf("Mark Count: %ld\n",
+        //        globalData.markCount.load(std::memory_order_relaxed));
+        // printf("Encoder Left: %ld\n", encoderLeftDriver->getCount());
+        // printf("Encoder Right: %ld\n", encoderRightDriver->getCount());
+
+        vTaskDelay(1 / portTICK_PERIOD_MS);
       }
+    } else {
+      // globalData.irSensorDriver->readCalibrated(lineSensorValues,
+      //                                           sideSensorValues);
+      // printf("\033[2J\033[H");
+      // for(int i = 0; i < 16; i++) {
+      //   printf("%4d ", lineSensorValues[i]);
+      // }
+
+      // IDLE or other state: keep task alive and re-check state periodically
+      globalData.motorDriver->pwmOutput(0, 0);
+      globalData.vacuumDriver->pwmOutput(0);
+      vTaskDelay(100 / portTICK_PERIOD_MS);
     }
-
-    if(param->globalData.mapData[mapPointIndex].encoderMilimeters >
-           encoderMilimetersAverage &&
-       (mapPointIndex + 1) < param->globalData.mapData.size()) {
-      mapPointIndex++;
-    }
-
-    float pathPID = pathController->getPID();
-
-    motorDriver->pwmOutput(
-        param->globalData.mapData[mapPointIndex].baseMotorPWM + pathPID,
-        param->globalData.mapData[mapPointIndex].baseMotorPWM - pathPID);
-
-    vacuumDriver->pwmOutput(RobotEnv::BASE_VACUUM_PWM);
-
-    // printf("\033[2J\033[H");
-    // irSensorDriver->read(rawSensorValues);
-    // for(int i = 0; i < 16; i++) {
-    //   printf("%4d ", rawSensorValues[i]);
-    // }
-    // printf("L: ");
-    // for(int i = 0; i < 12; i++) {
-    //   printf("%4d ", lineSensorValues[i]);
-    // }
-    // printf("S: ");
-    // for(int i = 0; i < 4; i++) {
-    //   printf("%4d ", sideSensorValues[i]);
-    // }
-    // printf("\n");
-    // printf("Base Motor PWM: %ld\n",
-    //        param->globalData.mapData[mapPointIndex].baseMotorPWM);
-    // printf("Path PID: %f\n", pathPID);
-    // printf("Mark Count: %ld\n",
-    //        param->globalData.markCount.load(std::memory_order_relaxed));
-    // printf("Encoder Left: %ld\n", encoderLeftDriver->getCount());
-    // printf("Encoder Right: %ld\n", encoderRightDriver->getCount());
-
-    vTaskDelay(1 / portTICK_PERIOD_MS);
   }
 }
 

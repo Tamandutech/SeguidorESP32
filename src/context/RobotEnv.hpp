@@ -2,16 +2,17 @@
 #define ROBOT_ENV_HPP
 
 namespace RobotEnv {
-const int32_t ROBOT_WIDTH         = 4;
-const int32_t WHEEL_RADIUS        = 11;
-const int32_t WHEEL_CIRCUMFERENCE = 70;
+const int32_t ROBOT_WIDTH                 = 4;
+const int32_t WHEEL_RADIUS                = 11;
+const int32_t WHEEL_CIRCUMFERENCE         = 70;
+const int32_t ENCODER_PULSES_PER_ROTATION = 4095;
 
 const int32_t MAX_SPEED          = 4;
 const int32_t MAX_DECELERATION   = 4;
 const int32_t MAX_ROTATION_SPEED = 4;
 
-// const int32_t BASE_MOTOR_PWM  = 10;
-const int32_t BASE_VACUUM_PWM = 100;
+const int32_t MAPPING_MOTOR_PWM = 10;
+const int32_t BASE_VACUUM_PWM   = 100;
 
 const int32_t MAX_MOTOR_PWM = 66;
 
@@ -25,6 +26,9 @@ constexpr float INTEGRAL_MAX = 1000.0F;  // Valor máximo para o termo integral
 constexpr float INTEGRAL_MIN = -1000.0F; // Valor mínimo para o termo integral
 
 const uint8_t GPIO_LED_DEBUG = 47;
+
+const uint8_t GPIO_LED_STRIP_DATA = 47;
+const uint8_t NUM_LED_STRIP_LEDS  = 3;
 
 const uint8_t GPIO_BATTERY_VOLTAGE = 18;
 

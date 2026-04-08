@@ -10,11 +10,9 @@
 
 #include "cli/cli.hpp"
 #include "context/GlobalData.hpp"
+#include "context/RobotStateMachine.hpp"
 #include "lib/CommunicationUtils.hpp"
 
-struct CommunicationTaskParamSchema {
-  GlobalData &globalData;
-};
 
 // Callback para status de conexão da UART BLE
 void uartStatusChangeCallback(enum nordic_uart_callback_type callback_type) {
@@ -24,7 +22,6 @@ void uartStatusChangeCallback(enum nordic_uart_callback_type callback_type) {
     ESP_LOGI("CommunicationTask", "BLE UART disconnected");
   }
 }
-
 
 // Callback para receber dados da UART BLE
 void uartReceiveCallback(struct ble_gatt_access_ctxt *ctxt) {
@@ -49,29 +46,28 @@ void uartReceiveCallback(struct ble_gatt_access_ctxt *ctxt) {
     switch(cliResult) {
     case CLI_ERROR_EMPTY_COMMAND:
       ESP_LOGE("CommunicationTask", "CLI Error: Empty command");
-      pushMessageToQueue(globalData, "Error: Empty command");
+      pushMessageToQueue("Error: Empty command");
       break;
     case CLI_ERROR_COMMAND_NOT_FOUND:
       ESP_LOGE("CommunicationTask", "CLI Error: Command not found: %s", buffer);
-      pushMessageToQueue(globalData, "Error: Command not found: %s", buffer);
+      pushMessageToQueue("Error: Command not found: %s", buffer);
       break;
     case CLI_ERROR_TOO_MANY_ARGS:
       ESP_LOGE("CommunicationTask",
                "CLI Error: Too many arguments for command: %s", buffer);
-      pushMessageToQueue(globalData, "Error: Too many arguments");
+      pushMessageToQueue("Error: Too many arguments");
       break;
     default:
       ESP_LOGE("CommunicationTask",
                "CLI Error: Unknown error (code: %d) for command: %s", cliResult,
                buffer);
-      pushMessageToQueue(globalData, "Error: Unknown error (code: %d)",
-                         cliResult);
+      pushMessageToQueue("Error: Unknown error (code: %d)", cliResult);
       break;
     }
   }
 
-  ESP_LOGI("CommunicationTask", "isReadyToRun: %d",
-           globalData.isReadyToRun.load(std::memory_order_relaxed));
+  ESP_LOGI("CommunicationTask", "robotMode: %d",
+           static_cast<int>(RobotStateMachine::get()));
 }
 
 // Processa mensagens da fila de comunicação
@@ -85,17 +81,14 @@ void processMessage(const Message &msg) {
 }
 
 void communicationTaskLoop(void *params) {
-  CommunicationTaskParamSchema *param =
-      static_cast<CommunicationTaskParamSchema *>(params);
-
-  nordic_uart_start("TT_SEGUIDOR", uartStatusChangeCallback);
+  (void)params;
+  nordic_uart_start("TT_SEMREH", uartStatusChangeCallback);
   nordic_uart_yield(uartReceiveCallback);
 
   Message receivedMessage;
 
   for(;;) {
-    // Check for messages from the queue
-    if(xQueueReceive(param->globalData.communicationQueue, &receivedMessage,
+    if(xQueueReceive(globalData.communicationQueue, &receivedMessage,
                      pdMS_TO_TICKS(100)) == pdTRUE) {
       processMessage(receivedMessage);
     }

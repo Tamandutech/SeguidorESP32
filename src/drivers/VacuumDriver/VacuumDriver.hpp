@@ -8,8 +8,6 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 
-#include "context/GlobalData.hpp"
-
 #define VACUUM_LEDC_TIMER     LEDC_TIMER_0        // Timer do LEDC utilizado
 #define VACUUM_LEDC_MODE      LEDC_LOW_SPEED_MODE // Modo de velocidade do LEDC
 #define VACUUM_PWM_PIN        LEDC_CHANNEL_0      // Canal do LEDC utilizado

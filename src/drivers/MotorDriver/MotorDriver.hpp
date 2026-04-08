@@ -10,7 +10,6 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 
-#include "context/GlobalData.hpp"
 #include "context/RobotEnv.hpp"
 
 #define MOTOR_LEDC_TIMER     LEDC_TIMER_1        // Timer do LEDC utilizado

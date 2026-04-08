@@ -7,11 +7,17 @@
 #include <cstring>
 #include <vector>
 
+#include "drivers/EncoderDriver/EncoderDriver.hpp"
+#include "drivers/IRSensorDriver/IRSensorDriver.hpp"
+// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
+#include "drivers/MotorDriver/MotorDriver.hpp"
+#include "drivers/VacuumDriver/VacuumDriver.hpp"
+
 // Message types for inter-task communication
 enum class MessageType { LOG };
 
 #define MESSAGE_LOG_NAME_SIZE    32
-#define MESSAGE_LOG_MESSAGE_SIZE 256
+#define MESSAGE_LOG_MESSAGE_SIZE 2048
 
 // Message structure for queue
 struct Message {
@@ -25,25 +31,66 @@ struct Message {
 };
 
 struct MapPoint {
-  int32_t encoderMilimeters;
-  int32_t baseMotorPWM;
+  int32_t encoderMilimeters{};
+  int32_t baseMotorPWM{};
+  int32_t baseVacuumPWM{};
+  enum MarkType {
+    LEFT_MARK,
+    RIGHT_MARK,
+    HANDMADE_MARK,
+    STOP_COMMAND_MARK,
+    UNKNOWN_MARK
+  } markType;
 };
 
+struct ParametersConfig {
+  bool    runOnMappingMode{};
+  int32_t vacuumPWM{};
+};
+
+// LED task command types (used by LedTask on core 0)
+enum class LedCommandType { ENTER_IDLE, EXIT_IDLE, BLINK_LED, SET_ALL_LEDS };
+
+// struct LedCommand {
+//   LedCommandType type;
+//   uint8_t        ledIndex; // for BLINK_LED: 0=right, 2=left
+//   LedColor       color;    // for BLINK_LED
+// };
+
 struct GlobalData {
-  std::atomic<bool> isReadyToRun = false;
+  // FreeRTOS queue for inter-task communication
+  QueueHandle_t communicationQueue;
 
-  std::atomic<int32_t> finishLineCount = 14900;
 
-  std::vector<MapPoint> mapData = {
-      {.encoderMilimeters = 0, .baseMotorPWM = 10},
-      // {.encoderMilimeters = 28000, .baseMotorPWM = 40},
-      // {.encoderMilimeters = 28800, .baseMotorPWM = 35},
-  };
+  /* Communication should only write on the variables below when the robot is in
+   * IDLE mode */
+
+  std::vector<MapPoint> mapData;
 
   std::atomic<int32_t> markCount = 0;
 
-  // FreeRTOS queue for inter-task communication
-  QueueHandle_t communicationQueue;
-} globalData;
+  std::atomic<int32_t> mappingEncoderMilimetersAverage = 0;
+
+  /* Initialized in MainTask during calibration mode */
+
+  ParametersConfig parametersConfig;
+
+  MotorPins    motorPins   = {};
+  MotorDriver *motorDriver = nullptr;
+
+  IRSensorDriver *irSensorDriver = nullptr;
+
+  EncoderDriver *encoderLeftDriver  = nullptr;
+  EncoderDriver *encoderRightDriver = nullptr;
+
+  VacuumPins    vacuumPins   = {};
+  VacuumDriver *vacuumDriver = nullptr;
+
+  // LedRgbPins    ledRgbPins   = {};
+  // LedRgbDriver *ledRgbDriver = nullptr;
+
+  QueueHandle_t ledCommandQueue = nullptr;
+
+} static globalData;
 
 #endif // GLOBAL_DATA_CONTEXT_HPP
