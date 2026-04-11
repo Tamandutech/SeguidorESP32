@@ -34,6 +34,8 @@ public:
                       uint16_t *side_sensor_values);
   void calibrate();
 
+  QTRSensors::CalibrationData getCalibrationData();
+
 private:
   IRSensorPins   pins_;
   const uint8_t  lineSensorsCount_;
@@ -110,6 +112,14 @@ void IRSensorDriver::readCalibrated(uint16_t *line_sensor_values,
   for(int i = 0; i < (sideSensorsCount_); i++) {
     side_sensor_values[i] = sensorValues_[sideSensorsMultiplexerIndex_[i]];
   }
+}
+
+QTRSensors::CalibrationData IRSensorDriver::getCalibrationData() {
+  return {
+      .initialized = sensorsArray_.calibrationOn.initialized,
+      .minimum     = sensorsArray_.calibrationOn.minimum,
+      .maximum     = sensorsArray_.calibrationOn.maximum,
+  };
 }
 
 #endif // IRSENSOR_DRIVER_HPP

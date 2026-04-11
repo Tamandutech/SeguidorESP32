@@ -80,6 +80,8 @@ struct GlobalData {
   LedRgbPins    ledRgbPins   = {};
   LedRgbDriver *ledRgbDriver = nullptr;
 
+  bool isProperlyCalibrated = false;
+
 } static globalData;
 
 #endif // GLOBAL_DATA_CONTEXT_HPP

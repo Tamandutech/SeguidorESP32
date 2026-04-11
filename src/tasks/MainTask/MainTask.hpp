@@ -155,7 +155,29 @@ void mainTaskLoop(void *params) {
     globalData.irSensorDriver->calibrate();
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
-  ESP_LOGI("MainTask", "Sensores calibrados");
+  QTRSensors::CalibrationData calibrationData =
+      globalData.irSensorDriver->getCalibrationData();
+  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.initialized);
+  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.minimum);
+  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.maximum);
+  if(!calibrationData.initialized ||
+     (calibrationData.maximum - calibrationData.minimum < 50)) {
+    globalData.isProperlyCalibrated = false;
+    ESP_LOGI("MainTask", "Sensores não calibrados");
+    pushMessageToQueue("Error: Sensores calibrados incorretamente (range: %d, "
+                       "%d, difference: %d, initialized: %d)",
+                       calibrationData.minimum, calibrationData.maximum,
+                       calibrationData.maximum - calibrationData.minimum,
+                       calibrationData.initialized);
+  } else {
+    globalData.isProperlyCalibrated = true;
+    ESP_LOGI("MainTask", "Sensores calibrados");
+    pushMessageToQueue("Sensores calibrados corretamente (range: %d, "
+                       "%d, difference: %d, initialized: %d)",
+                       calibrationData.minimum, calibrationData.maximum,
+                       calibrationData.maximum - calibrationData.minimum,
+                       calibrationData.initialized);
+  }
   globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
   globalData.ledRgbDriver->refresh();
 
@@ -388,24 +410,32 @@ void mainTaskLoop(void *params) {
         vTaskDelay(1 / portTICK_PERIOD_MS);
       }
     } else {
-      // globalData.irSensorDriver->readCalibrated(lineSensorValues,
-      //                                           sideSensorValues);
-      // printf("\033[2J\033[H");
-      // for(int i = 0; i < 16; i++) {
-      //   printf("%4d ", lineSensorValues[i]);
-      // }
+      globalData.irSensorDriver->readCalibrated(lineSensorValues,
+                                                sideSensorValues);
+      printf("\033[2J\033[H");
+      for(int i = 0; i < 16; i++) {
+        printf("%4d ", lineSensorValues[i]);
+      }
 
       // IDLE or other state: keep task alive and re-check state periodically
-      if(alternateLedColorFlag) {
-        globalData.ledRgbDriver->setColor(0, LED_COLOR_PURPLE);
-        alternateLedColorFlag = false;
+      if(globalData.isProperlyCalibrated) {
+        if(alternateLedColorFlag) {
+          globalData.ledRgbDriver->setColor(0, LED_COLOR_PURPLE, 0.75f);
+          alternateLedColorFlag = false;
+        } else {
+          globalData.ledRgbDriver->setColor(0, LED_COLOR_WHITE, 0.75f);
+          alternateLedColorFlag = true;
+        }
+        globalData.ledRgbDriver->setColor(1, LED_COLOR_BLUE);
+        globalData.ledRgbDriver->setColor(2, LED_COLOR_BLUE);
+        globalData.ledRgbDriver->setColor(3, LED_COLOR_BLUE);
       } else {
-        globalData.ledRgbDriver->setColor(0, LED_COLOR_WHITE);
-        alternateLedColorFlag = true;
+        globalData.ledRgbDriver->setColor(0, LED_COLOR_RED);
+        globalData.ledRgbDriver->setColor(1, LED_COLOR_RED);
+        globalData.ledRgbDriver->setColor(2, LED_COLOR_RED);
+        globalData.ledRgbDriver->setColor(3, LED_COLOR_RED);
       }
-      // globalData.ledRgbDriver->setColor(1, LED_COLOR_BLUE);
-      // globalData.ledRgbDriver->setColor(2, LED_COLOR_BLUE);
-      // globalData.ledRgbDriver->setColor(3, LED_COLOR_BLUE);
+
       globalData.ledRgbDriver->refresh();
       globalData.motorDriver->pwmOutput(0, 0);
       globalData.vacuumDriver->pwmOutput(0);
