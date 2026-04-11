@@ -12,7 +12,6 @@
 #include "storage/storage.hpp"
 // Tasks
 #include "tasks/CommunicationTask/CommunicationTask.hpp"
-// #include "tasks/LedTask/LedTask.hpp"
 #include "tasks/MainTask/MainTask.hpp"
 
 extern "C" {
@@ -44,9 +43,6 @@ void app_main() {
   // Task
   // 1 word = 4 bytes
   // The stack depth is setup to 60000 words, which is 240KB.
-  // TaskHandle_t ledTaskHandle;
-  // xTaskCreatePinnedToCore(ledTaskLoop, "LedTask", 4096, NULL, 10,
-  //                         &ledTaskHandle, 0); // Run on Core 0
   TaskHandle_t communicationTaskHandle;
   xTaskCreatePinnedToCore(communicationTaskLoop, "CommunicationTask", 60000,
                           NULL, 15, &communicationTaskHandle,

@@ -13,7 +13,10 @@
 
 #include "LedStripEncoder/led_strip_encoder.h"
 
-#define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10 MHz, 1 tick = 0.1 us
+// RMT tick clock (not WS2812 line rate). WS2812 is ~800 kHz (~1.25 us/bit); 10
+// MHz gives integer ticks for T0H/T0L/T1H/T1L in
+// LedStripEncoder/led_strip_encoder.c.
+#define RMT_LED_STRIP_RESOLUTION_HZ 10000000
 
 struct LedRgbPins {
   gpio_num_t gpioData;
@@ -49,8 +52,8 @@ public:
   void refresh();
 
 private:
-  const char *tag_ = "LedRgbDriver";
-  LedRgbPins  pins_;
+  // const char *tag_ = "LedRgbDriver";
+  LedRgbPins pins_;
 
   rmt_channel_handle_t  ledChan_    = nullptr;
   rmt_encoder_handle_t  ledEncoder_ = nullptr;
@@ -64,13 +67,13 @@ private:
 LedRgbDriver::LedRgbDriver(LedRgbPins pins) : pins_(pins) {
   ledStripPixels_ = (uint8_t *)calloc(pins_.numLeds * 3, sizeof(uint8_t));
   if(ledStripPixels_ == nullptr) {
-    ESP_LOGE(tag_, "Failed to allocate pixel buffer");
+    ESP_LOGE("LedRgbDriver", "Failed to allocate pixel buffer");
     return;
   }
   stripInit();
   memset(ledStripPixels_, 0, pins_.numLeds * 3);
-  ESP_LOGD(tag_, "LedRgbDriver init: GPIO %d, %u LEDs", pins_.gpioData,
-           pins_.numLeds);
+  ESP_LOGI("LedRgbDriver", "LedRgbDriver init: GPIO %d, %u LEDs",
+           pins_.gpioData, pins_.numLeds);
 }
 
 LedRgbDriver::~LedRgbDriver() {
@@ -93,11 +96,12 @@ void LedRgbDriver::stripInit() {
       .clk_src           = RMT_CLK_SRC_DEFAULT,
       .resolution_hz     = RMT_LED_STRIP_RESOLUTION_HZ,
       .mem_block_symbols = 64,
-      .trans_queue_depth = 4,
+      .trans_queue_depth = 8,
   };
   esp_err_t err = rmt_new_tx_channel(&txChanConfig, &ledChan_);
   if(err != ESP_OK) {
-    ESP_LOGE(tag_, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
+    ESP_LOGE("LedRgbDriver", "rmt_new_tx_channel failed: %s",
+             esp_err_to_name(err));
     return;
   }
 
@@ -106,7 +110,7 @@ void LedRgbDriver::stripInit() {
   };
   err = rmt_new_led_strip_encoder(&encoderConfig, &ledEncoder_);
   if(err != ESP_OK) {
-    ESP_LOGE(tag_, "rmt_new_led_strip_encoder failed: %s",
+    ESP_LOGE("LedRgbDriver", "rmt_new_led_strip_encoder failed: %s",
              esp_err_to_name(err));
     rmt_del_channel(ledChan_);
     ledChan_ = nullptr;
@@ -115,7 +119,7 @@ void LedRgbDriver::stripInit() {
 
   err = rmt_enable(ledChan_);
   if(err != ESP_OK) {
-    ESP_LOGE(tag_, "rmt_enable failed: %s", esp_err_to_name(err));
+    ESP_LOGE("LedRgbDriver", "rmt_enable failed: %s", esp_err_to_name(err));
     rmt_del_encoder(ledEncoder_);
     rmt_del_channel(ledChan_);
     ledEncoder_ = nullptr;
@@ -175,6 +179,8 @@ void LedRgbDriver::refresh() {
       rmt_transmit(ledChan_, ledEncoder_, ledStripPixels_, size, &txConfig_);
   if(err == ESP_OK) {
     rmt_tx_wait_all_done(ledChan_, portMAX_DELAY);
+  } else {
+    ESP_LOGE("LedRgbDriver", "rmt_transmit failed: %s", esp_err_to_name(err));
   }
 }
 

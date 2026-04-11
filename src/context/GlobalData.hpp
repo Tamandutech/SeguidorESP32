@@ -9,7 +9,7 @@
 
 #include "drivers/EncoderDriver/EncoderDriver.hpp"
 #include "drivers/IRSensorDriver/IRSensorDriver.hpp"
-// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
+#include "drivers/LedRgbDriver/LedRgbDriver.hpp"
 #include "drivers/MotorDriver/MotorDriver.hpp"
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 
@@ -48,15 +48,6 @@ struct ParametersConfig {
   int32_t vacuumPWM{};
 };
 
-// LED task command types (used by LedTask on core 0)
-enum class LedCommandType { ENTER_IDLE, EXIT_IDLE, BLINK_LED, SET_ALL_LEDS };
-
-// struct LedCommand {
-//   LedCommandType type;
-//   uint8_t        ledIndex; // for BLINK_LED: 0=right, 2=left
-//   LedColor       color;    // for BLINK_LED
-// };
-
 struct GlobalData {
   // FreeRTOS queue for inter-task communication
   QueueHandle_t communicationQueue;
@@ -86,10 +77,8 @@ struct GlobalData {
   VacuumPins    vacuumPins   = {};
   VacuumDriver *vacuumDriver = nullptr;
 
-  // LedRgbPins    ledRgbPins   = {};
-  // LedRgbDriver *ledRgbDriver = nullptr;
-
-  QueueHandle_t ledCommandQueue = nullptr;
+  LedRgbPins    ledRgbPins   = {};
+  LedRgbDriver *ledRgbDriver = nullptr;
 
 } static globalData;
 

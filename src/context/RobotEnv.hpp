@@ -26,9 +26,7 @@ constexpr float INTEGRAL_MAX = 1000.0F;  // Valor máximo para o termo integral
 constexpr float INTEGRAL_MIN = -1000.0F; // Valor mínimo para o termo integral
 
 const uint8_t GPIO_LED_DEBUG = 47;
-
-const uint8_t GPIO_LED_STRIP_DATA = 47;
-const uint8_t NUM_LED_STRIP_LEDS  = 3;
+const uint8_t NUM_LEDS_DEBUG = 4;
 
 const uint8_t GPIO_BATTERY_VOLTAGE = 18;
 

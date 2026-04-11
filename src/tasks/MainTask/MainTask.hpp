@@ -6,7 +6,7 @@
 
 #include "drivers/EncoderDriver/EncoderDriver.hpp"
 #include "drivers/IRSensorDriver/IRSensorDriver.hpp"
-// #include "drivers/LedRGBDriver/LedRgbDriver.hpp"
+#include "drivers/LedRgbDriver/LedRgbDriver.hpp"
 #include "drivers/MotorDriver/MotorDriver.hpp"
 #include "drivers/VacuumDriver/VacuumDriver.hpp"
 
@@ -121,18 +121,12 @@ void mainTaskLoop(void *params) {
     globalData.vacuumPins   = {.gpioPWM = RobotEnv::GPIO_PWM_VACUUM};
     globalData.vacuumDriver = new VacuumDriver(globalData.vacuumPins);
   }
-  // if(globalData.ledRgbDriver == nullptr) {
-  //   globalData.ledRgbPins   = {.gpioData =
-  //                                  (gpio_num_t)RobotEnv::GPIO_LED_STRIP_DATA,
-  //                              .numLeds = RobotEnv::NUM_LED_STRIP_LEDS};
-  //   globalData.ledRgbDriver = new LedRgbDriver(globalData.ledRgbPins);
-  // }
-  // if(globalData.ledCommandQueue != nullptr) {
-  //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
-  //                     .ledIndex = 0,
-  //                     .color    = LED_COLOR_ORANGE};
-  //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
-  // }
+  if(globalData.ledRgbDriver == nullptr) {
+    globalData.ledRgbPins   = {.gpioData = (gpio_num_t)RobotEnv::GPIO_LED_DEBUG,
+                               .numLeds  = RobotEnv::NUM_LEDS_DEBUG};
+    globalData.ledRgbDriver = new LedRgbDriver(globalData.ledRgbPins);
+  }
+
 
   PathControllerParamSchema pathControllerParam = {
       .constants      = {.kP = 0.0145F, .kI = 0.00F, .kD = 0.065F},
@@ -152,12 +146,18 @@ void mainTaskLoop(void *params) {
 
   uint32_t mapPointIndex = 0;
 
+  bool alternateLedColorFlag = false;
+
+  globalData.ledRgbDriver->setColor(0, LED_COLOR_YELLOW);
+  globalData.ledRgbDriver->refresh();
   ESP_LOGI("MainTask", "Calibrando os sensores...");
   for(int i = 0; i < 50; i++) {
     globalData.irSensorDriver->calibrate();
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
   ESP_LOGI("MainTask", "Sensores calibrados");
+  globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
+  globalData.ledRgbDriver->refresh();
 
   RobotStateMachine::toIdle(globalData.motorDriver, globalData.vacuumDriver);
   ESP_LOGI("MainTask", "Escolha entre modo de mapeamento ou modo de corrida");
@@ -181,6 +181,8 @@ void mainTaskLoop(void *params) {
 
           RobotStateMachine::toIdle(globalData.motorDriver,
                                     globalData.vacuumDriver);
+          globalData.ledRgbDriver->setColor(0, LED_COLOR_RED);
+          globalData.ledRgbDriver->refresh();
           break; // Back to outer loop (IDLE branch)
         }
 
@@ -233,14 +235,14 @@ void mainTaskLoop(void *params) {
                encoderMilimetersAverage &&
            (mapPointIndex + 1) < globalData.mapData.size()) {
           mapPointIndex++;
-          // if(globalData.ledCommandQueue != nullptr) {
-          //   LedColor runColor =
-          //       (mapPointIndex % 2 == 1) ? LED_COLOR_GREEN : LED_COLOR_RED;
-          //   LedCommand cmd = {.type     = LedCommandType::SET_ALL_LEDS,
-          //                     .ledIndex = 0,
-          //                     .color    = runColor};
-          //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
-          // }
+          if(alternateLedColorFlag) {
+            globalData.ledRgbDriver->setColor(0, LED_COLOR_ORANGE);
+            alternateLedColorFlag = false;
+          } else {
+            globalData.ledRgbDriver->setColor(0, LED_COLOR_CYAN);
+            alternateLedColorFlag = true;
+          }
+          globalData.ledRgbDriver->refresh();
         }
 
         float pathPID = pathController->getPID();
@@ -314,12 +316,14 @@ void mainTaskLoop(void *params) {
                    .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
                    .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
                    .markType          = MapPoint::MarkType::RIGHT_MARK});
-              // if(globalData.ledCommandQueue != nullptr) {
-              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
-              //                     .ledIndex = 0,
-              //                     .color    = LED_COLOR_GREEN};
-              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
-              // }
+              if(alternateLedColorFlag) {
+                globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
+                alternateLedColorFlag = false;
+              } else {
+                globalData.ledRgbDriver->setColor(0, LED_COLOR_RED);
+                alternateLedColorFlag = true;
+              }
+              globalData.ledRgbDriver->refresh();
             }
           } else if(leftIsOnMark && !rightIsOnMark) {
             if(!lastLeftReadIsOnMark) {
@@ -335,12 +339,14 @@ void mainTaskLoop(void *params) {
 
               lastLeftReadIsOnMark  = true;
               lastRightReadIsOnMark = false;
-              // if(globalData.ledCommandQueue != nullptr) {
-              //   LedCommand cmd = {.type     = LedCommandType::BLINK_LED,
-              //                     .ledIndex = 2,
-              //                     .color    = LED_COLOR_GREEN};
-              //   xQueueSend(globalData.ledCommandQueue, &cmd, 0);
-              // }
+              if(alternateLedColorFlag) {
+                globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
+                alternateLedColorFlag = false;
+              } else {
+                globalData.ledRgbDriver->setColor(0, LED_COLOR_RED);
+                alternateLedColorFlag = true;
+              }
+              globalData.ledRgbDriver->refresh();
             }
           } else {
             lastLeftReadIsOnMark  = true;
@@ -390,6 +396,17 @@ void mainTaskLoop(void *params) {
       // }
 
       // IDLE or other state: keep task alive and re-check state periodically
+      if(alternateLedColorFlag) {
+        globalData.ledRgbDriver->setColor(0, LED_COLOR_PURPLE);
+        alternateLedColorFlag = false;
+      } else {
+        globalData.ledRgbDriver->setColor(0, LED_COLOR_WHITE);
+        alternateLedColorFlag = true;
+      }
+      // globalData.ledRgbDriver->setColor(1, LED_COLOR_BLUE);
+      // globalData.ledRgbDriver->setColor(2, LED_COLOR_BLUE);
+      // globalData.ledRgbDriver->setColor(3, LED_COLOR_BLUE);
+      globalData.ledRgbDriver->refresh();
       globalData.motorDriver->pwmOutput(0, 0);
       globalData.vacuumDriver->pwmOutput(0);
       vTaskDelay(100 / portTICK_PERIOD_MS);
