@@ -410,12 +410,12 @@ void mainTaskLoop(void *params) {
         vTaskDelay(1 / portTICK_PERIOD_MS);
       }
     } else {
-      globalData.irSensorDriver->readCalibrated(lineSensorValues,
-                                                sideSensorValues);
-      printf("\033[2J\033[H");
-      for(int i = 0; i < 16; i++) {
-        printf("%4d ", lineSensorValues[i]);
-      }
+      // globalData.irSensorDriver->readCalibrated(lineSensorValues,
+      //                                           sideSensorValues);
+      // printf("\033[2J\033[H");
+      // for(int i = 0; i < 16; i++) {
+      //   printf("%4d ", lineSensorValues[i]);
+      // }
 
       // IDLE or other state: keep task alive and re-check state periodically
       if(globalData.isProperlyCalibrated) {
