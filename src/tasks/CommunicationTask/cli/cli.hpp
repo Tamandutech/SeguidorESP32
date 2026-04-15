@@ -316,16 +316,12 @@ static int handleMapSaveRuntime(int argc, char *argv[]) {
 }
 
 static int handleMapGet(int argc, char *argv[]) {
-  std::string out;
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    char            line[64];
-    snprintf(line, sizeof(line), "%zu,%d,%ld,%d,%ld\n", i, 0,
-             point.encoderMilimeters, point.markType, point.baseMotorPWM);
-    out += line;
-  }
-  if(!out.empty()) {
-    pushDataJsonToQueue("%s", out.c_str());
+    pushDataJsonToQueue("%zu,%d,%ld,%d,%ld", i, 0,
+                        static_cast<long>(point.encoderMilimeters),
+                        static_cast<int>(point.markType),
+                        static_cast<long>(point.baseMotorPWM));
   }
   return CLI_SUCCESS;
 }
