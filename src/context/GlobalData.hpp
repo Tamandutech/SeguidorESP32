@@ -19,6 +19,13 @@ enum class MessageType { LOG };
 #define MESSAGE_LOG_NAME_SIZE    32
 #define MESSAGE_LOG_MESSAGE_SIZE 2048
 
+#define RECEIVED_UART_MESSAGE_SIZE 256
+
+// Line received from BLE UART (copied off the GATT callback into this queue).
+struct ReceivedUartMessage {
+  char text[RECEIVED_UART_MESSAGE_SIZE];
+};
+
 // Message structure for queue
 struct Message {
   struct {
@@ -51,6 +58,9 @@ struct ParametersConfig {
 struct GlobalData {
   // FreeRTOS queue for inter-task communication
   QueueHandle_t communicationQueue;
+
+  // Raw lines from BLE RX; processed in CommunicationTask (not in NimBLE callback).
+  QueueHandle_t receivedUartMessages;
 
 
   /* Communication should only write on the variables below when the robot is in

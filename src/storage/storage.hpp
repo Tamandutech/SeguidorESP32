@@ -2,8 +2,10 @@
 #define STORAGE_HPP
 
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <dirent.h>
 #include <iostream>
 #include <mutex>
@@ -36,7 +38,8 @@ public:
   };
 
   esp_err_t mount_storage(std::string mount_path) {
-    if(is_mounted()) {
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(mount_status) {
       ESP_LOGE(logger_tag.c_str(),
                "FATFS already mounted at %s. To mount at %s, first unmount the "
                "previous path.",
@@ -54,16 +57,19 @@ public:
                esp_err_to_name(mount_result));
       mount_status = false;
       return ESP_FAIL;
-    } else {
-      ESP_LOGI(logger_tag.c_str(), "FATFS mounted successfully at %s",
-               mount_point.c_str());
-      mount_status = true;
-      return ESP_OK;
     }
+    ESP_LOGI(logger_tag.c_str(), "FATFS mounted successfully at %s",
+             mount_point.c_str());
+    mount_status = true;
+    return ESP_OK;
   }
 
   esp_err_t list_files() {
-    if(!is_mounted()) return ESP_FAIL;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     DIR           *directory_handle;
     struct dirent *directory_entry;
@@ -83,14 +89,19 @@ public:
 
   esp_err_t save_data(std::string file_path, char *data_buffer,
                       size_t data_size, const char *mode = "wb") {
-    if(!is_mounted()) return ESP_FAIL;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), mode);
 
     if(file_handle == NULL) {
-      ESP_LOGE(logger_tag.c_str(), "Failed to open file %s for writing",
-               file_path.c_str());
+      ESP_LOGE(logger_tag.c_str(),
+               "Failed to open file %s for writing: %s (%s)", file_path.c_str(),
+               full_path.c_str(), strerror(errno));
       return ESP_FAIL;
     }
 
@@ -105,14 +116,19 @@ public:
 
   esp_err_t load_data(std::string file_path, char *data_buffer,
                       size_t data_size) {
-    if(!is_mounted()) return ESP_FAIL;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), "r");
 
     if(file_handle == NULL) {
-      ESP_LOGE(logger_tag.c_str(), "Failed to open file %s for reading",
-               file_path.c_str());
+      ESP_LOGE(logger_tag.c_str(),
+               "Failed to open file %s for reading: %s (%s)", file_path.c_str(),
+               full_path.c_str(), strerror(errno));
       return ESP_FAIL;
     }
 
@@ -128,14 +144,19 @@ public:
 
   esp_err_t load_data(std::string file_path, char **data_buffer,
                       size_t *file_size) {
-    if(!is_mounted()) return ESP_FAIL;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), "rb");
 
     if(file_handle == NULL) {
-      ESP_LOGE(logger_tag.c_str(), "Failed to open file %s for reading",
-               file_path.c_str());
+      ESP_LOGE(logger_tag.c_str(),
+               "Failed to open file %s for reading: %s (%s)", file_path.c_str(),
+               full_path.c_str(), strerror(errno));
       return ESP_FAIL;
     }
 
@@ -158,7 +179,11 @@ public:
   }
 
   esp_err_t delete_data(std::string file_path) {
-    if(!is_mounted()) return ESP_FAIL;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path = mount_point + "/" + file_path;
     if(remove(full_path.c_str()) != 0) {
@@ -187,15 +212,20 @@ public:
   // Vector serialization helpers
   template <typename ElementType>
   esp_err_t write_vector(const std::vector<ElementType> &vector_data,
-                        std::string file_path) {
-    if(!is_mounted()) return ESP_FAIL;
+                         std::string                     file_path) {
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), "wb");
 
     if(file_handle == NULL) {
-      ESP_LOGE(logger_tag.c_str(), "Failed to open file %s for writing",
-               file_path.c_str());
+      ESP_LOGE(logger_tag.c_str(),
+               "Failed to open file %s for writing: %s (%s)", file_path.c_str(),
+               full_path.c_str(), strerror(errno));
       return ESP_FAIL;
     }
 
@@ -214,8 +244,12 @@ public:
 
   template <typename ElementType>
   esp_err_t read_vector(std::vector<ElementType> &vector_data,
-                        std::string file_path) {
-    if(!is_mounted()) return ESP_FAIL;
+                        std::string               file_path) {
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
+      return ESP_FAIL;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), "rb");
@@ -245,7 +279,10 @@ public:
 
   // Check if file exists
   bool file_exists(std::string file_path) {
-    if(!is_mounted()) return false;
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    if(!mount_status) {
+      return false;
+    }
 
     std::string full_path   = mount_point + "/" + file_path;
     FILE       *file_handle = fopen(full_path.c_str(), "r");
@@ -265,6 +302,7 @@ private:
   std::string                      mount_point;
   esp_vfs_fat_sdmmc_mount_config_t fat_mount_config;
   bool                             mount_status;
+  mutable std::mutex               fs_mutex;
 
   Storage() {
     wear_leveling_handle = WL_INVALID_HANDLE;
@@ -272,17 +310,9 @@ private:
     logger_tag           = "Storage";
 
     fat_mount_config.format_if_mount_failed = true;
-    fat_mount_config.max_files              = 5;
+    fat_mount_config.max_files              = 16;
     fat_mount_config.allocation_unit_size   = CONFIG_WL_SECTOR_SIZE;
     mount_status                            = false;
-  }
-
-  bool is_mounted() {
-    if(!mount_status) {
-      ESP_LOGD(logger_tag.c_str(), "FATFS not mounted.");
-    }
-
-    return mount_status;
   }
 };
 

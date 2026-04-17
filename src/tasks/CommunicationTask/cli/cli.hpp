@@ -26,7 +26,8 @@
 
 // Storage files
 #define MAP_STORAGE_FILE       "map_data.dat"
-#define PARAMETERS_CONFIG_FILE "parameters_config.dat"
+// FAT is 8.3 only (CONFIG_FATFS_LFN_NONE): basename must be <= 8 chars.
+#define PARAMETERS_CONFIG_FILE "params.dat"
 
 // Parse error codes for className.parameterName format
 enum class ParseError {
@@ -162,25 +163,29 @@ typedef int (*CommandHandler)(int argc, char *argv[]);
 // ========== Command Handler Functions ==========
 
 // Parameter Commands
+//
+// param_list sends one outgoing JSON message per line (TamanduCLI / BLE), e.g.:
+//   {"data": "Parameters: 2"}
+//   {"data": "0 - State.runOnMappingMode: 0"}
+//   {"data": "1 - Vacuum.speed: 0"}
 static int handleParamList(int argc, char *argv[]) {
-  std::string list;
-  int         count = 0;
-  char        value[64];
+  char valueState[64];
+  char valueVacuum[64];
+  bool hasState = getParameterValue("State", "runOnMappingMode", valueState,
+                                    sizeof(valueState));
+  bool hasVacuum =
+      getParameterValue("Vacuum", "speed", valueVacuum, sizeof(valueVacuum));
+  int count = (hasState ? 1 : 0) + (hasVacuum ? 1 : 0);
 
-  if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
-    char line[128];
-    snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n", count++,
-             value);
-    list += line;
-  }
-  if(getParameterValue("Vacuum", "speed", value, sizeof(value))) {
-    char line[128];
-    snprintf(line, sizeof(line), " %d - Vacuum.speed: %s\n", count++, value);
-    list += line;
-  }
+  pushDataJsonToQueue("Parameters: %d", count);
 
-  std::string out = "Parameters: " + std::to_string(count) + "\n" + list;
-  pushDataJsonToQueue("%s", out.c_str());
+  int index = 0;
+  if(hasState) {
+    pushDataJsonToQueue("%d - State.runOnMappingMode: %s", index++, valueState);
+  }
+  if(hasVacuum) {
+    pushDataJsonToQueue("%d - Vacuum.speed: %s", index++, valueVacuum);
+  }
   return CLI_SUCCESS;
 }
 

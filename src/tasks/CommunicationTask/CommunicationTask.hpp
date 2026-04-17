@@ -6,6 +6,8 @@
 #include <cstring>
 #include <string>
 
+#include "esp_log.h"
+
 #include "nimble-nordic-uart/nimble-nordic-uart.h"
 
 #include "cli/cli.hpp"
@@ -23,25 +25,27 @@ void uartStatusChangeCallback(enum nordic_uart_callback_type callback_type) {
   }
 }
 
-// Callback para receber dados da UART BLE
+// NimBLE GATT callback: only enqueue — CLI runs in communicationTaskLoop.
 void uartReceiveCallback(struct ble_gatt_access_ctxt *ctxt) {
-  // Get the actual data length from the mbuf
   uint16_t data_len = ctxt->om->om_len;
 
-  // Create a null-terminated buffer to safely handle the data
-  char   buffer[256];
-  size_t copy_len =
-      (data_len < sizeof(buffer) - 1) ? data_len : sizeof(buffer) - 1;
-  memcpy(buffer, ctxt->om->om_data, copy_len);
-  buffer[copy_len] = '\0';
+  ReceivedUartMessage uartMsg{};
+  size_t              copy_len = (data_len < RECEIVED_UART_MESSAGE_SIZE - 1)
+                                   ? data_len
+                                   : RECEIVED_UART_MESSAGE_SIZE - 1;
+  memcpy(uartMsg.text, ctxt->om->om_data, copy_len);
+  uartMsg.text[copy_len] = '\0';
 
-  ESP_LOGI("CommunicationTask", "BLE UART received data: %s (len: %d)", buffer,
-           data_len);
+  if(xQueueSend(globalData.receivedUartMessages, &uartMsg, 0) != pdTRUE) {
+    ESP_LOGW("CommunicationTask",
+             "receivedUartMessages full, dropping (len=%u)",
+             static_cast<unsigned>(data_len));
+  }
+}
 
-  // Execute CLI command and check return value
+static void processReceivedUartLine(char *buffer) {
   int cliResult = cli(buffer);
 
-  // If CLI returned an error, log and push error message to queue
   if(cliResult != CLI_SUCCESS) {
     switch(cliResult) {
     case CLI_ERROR_EMPTY_COMMAND:
@@ -80,17 +84,37 @@ void processMessage(const Message &msg) {
   }
 }
 
+static void drainOutgoingMessages() {
+  Message receivedMessage;
+  while(xQueueReceive(globalData.communicationQueue, &receivedMessage, 0) ==
+        pdTRUE) {
+    processMessage(receivedMessage);
+  }
+}
+
 void communicationTaskLoop(void *params) {
   (void)params;
   nordic_uart_start("TT_SEMREH", uartStatusChangeCallback);
   nordic_uart_yield(uartReceiveCallback);
 
-  Message receivedMessage;
+  Message             receivedMessage;
+  ReceivedUartMessage uartMsg;
 
   for(;;) {
+    while(xQueueReceive(globalData.receivedUartMessages, &uartMsg, 0) ==
+          pdTRUE) {
+      ESP_LOGI("CommunicationTask", "BLE UART received data: %s", uartMsg.text);
+      processReceivedUartLine(uartMsg.text);
+      drainOutgoingMessages();
+    }
+
     if(xQueueReceive(globalData.communicationQueue, &receivedMessage,
                      pdMS_TO_TICKS(100)) == pdTRUE) {
       processMessage(receivedMessage);
+      while(xQueueReceive(globalData.communicationQueue, &receivedMessage, 0) ==
+            pdTRUE) {
+        processMessage(receivedMessage);
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));

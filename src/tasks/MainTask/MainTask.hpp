@@ -29,9 +29,9 @@ void mainTaskLoop(void *params) {
   // Load parametersConfig from storage, use defaults if file doesn't exist
   ParametersConfig default_parameters_config = {.runOnMappingMode = false,
                                                 .vacuumPWM        = 0};
-  if(storage->file_exists("parameters_config.dat")) {
+  if(storage->file_exists("params.dat")) {
     esp_err_t read_result =
-        storage->read(globalData.parametersConfig, "parameters_config.dat");
+        storage->read(globalData.parametersConfig, "params.dat");
     if(read_result != ESP_OK) {
       ESP_LOGW("MainTask", "Failed to read parametersConfig, using defaults");
       globalData.parametersConfig = default_parameters_config;

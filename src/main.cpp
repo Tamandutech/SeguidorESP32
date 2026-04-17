@@ -28,17 +28,12 @@ void app_main() {
     return;
   }
 
-  // globalData.ledCommandQueue = xQueueCreate(10, sizeof(LedCommand));
-  // if(globalData.ledCommandQueue == NULL) {
-  //   ESP_LOGE("Main", "Failed to create LED command queue");
-  //   return;
-  // }
-
-  // Storage::write(globalData.randomNumber.load(std::memory_order_relaxed));
-  // Storage::write(globalData.randomChar.load(std::memory_order_relaxed));
-  // Storage::write(globalData.randomFloat.load(std::memory_order_relaxed));
-  // Storage::write(globalData.randomBool.load(std::memory_order_relaxed));
-
+  globalData.receivedUartMessages =
+      xQueueCreate(10, sizeof(ReceivedUartMessage));
+  if(globalData.receivedUartMessages == NULL) {
+    ESP_LOGE("Main", "Failed to create receivedUartMessages queue");
+    return;
+  }
 
   // Task
   // 1 word = 4 bytes
