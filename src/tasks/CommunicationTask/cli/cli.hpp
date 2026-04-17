@@ -280,14 +280,14 @@ static int handleMapAdd(int argc, char *argv[]) {
   int   addedCount = 0;
 
   while(record != nullptr) {
-    int id, time, encMedia, trackStatus, offset;
-    if(sscanf(record, "%d,%d,%d,%d,%d", &id, &time, &encMedia, &trackStatus,
-              &offset) == 5) {
+    int id, vacuumPWM, encMedia, trackStatus, offset;
+    if(sscanf(record, "%d,%d,%d,%d,%d", &id, &vacuumPWM, &encMedia,
+              &trackStatus, &offset) == 5) {
       MapPoint point;
       point.encoderMilimeters = static_cast<int32_t>(encMedia);
       point.baseMotorPWM      = static_cast<int32_t>(offset);
-      point.baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM;
-      point.markType          = MapPoint::MarkType::HANDMADE_MARK;
+      point.baseVacuumPWM     = static_cast<int32_t>(vacuumPWM);
+      point.markType          = static_cast<MapPoint::MarkType>(trackStatus);
       globalData.mapData.push_back(point);
       addedCount++;
     }
