@@ -129,7 +129,7 @@ void mainTaskLoop(void *params) {
 
 
   PathControllerParamSchema pathControllerParam = {
-      .constants      = {.kP = 0.0145F, .kI = 0.00F, .kD = 0.065F},
+      .constants      = {.kP = 0.017F, .kI = 0.00F, .kD = 0.068F},
       .sensorQuantity = 12,
       .sensorValues   = lineSensorValues,
       .maxAngle       = 45.0F, // Ângulo máximo de 45 graus
