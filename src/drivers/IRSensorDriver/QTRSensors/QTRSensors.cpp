@@ -460,35 +460,26 @@ void QTRSensors::calibrateOnOrOff(CalibrationData &calibration,
 
     calibration.initialized = true;
   }
-  /*
-    for(uint8_t j = 0; j < 10; j++) {
-      read(sensorValues, mode);
 
-      for(uint8_t i = 0; i < _sensorCount; i++) {
-        if((j == 0) || (sensorValues[i] > maxSensorValues[i]))
-          maxSensorValues[i] = sensorValues[i];
-
-        if((j == 0) || (sensorValues[i] < minSensorValues[i]))
-          minSensorValues[i] = sensorValues[i];
-      }
-    }
+  for(uint8_t j = 0; j < 10; j++) {
+    read(sensorValues, mode);
 
     for(uint8_t i = 0; i < _sensorCount; i++) {
-      if(minSensorValues[i] > calibration.maximum[i])
-        calibration.maximum[i] = minSensorValues[i];
+      if((j == 0) || (sensorValues[i] > maxSensorValues[i]))
+        maxSensorValues[i] = sensorValues[i];
 
-      if(maxSensorValues[i] < calibration.minimum[i])
-        calibration.minimum[i] = maxSensorValues[i];
+      if((j == 0) || (sensorValues[i] < minSensorValues[i]))
+        minSensorValues[i] = sensorValues[i];
     }
-        */
+  }
 
   for(uint8_t i = 0; i < _sensorCount; i++) {
-    calibration.minimum[i] = 200;
-    minSensorValues[i] = 200;
+    if(minSensorValues[i] > calibration.maximum[i])
+      calibration.maximum[i] = minSensorValues[i];
 
-    calibration.maximum[i] = 3600;
-    maxSensorValues[i] = 3600;
-   }
+    if(maxSensorValues[i] < calibration.minimum[i])
+      calibration.minimum[i] = maxSensorValues[i];
+  }
 }
 
 void QTRSensors::read(uint16_t *sensorValues, QTRReadMode mode) {

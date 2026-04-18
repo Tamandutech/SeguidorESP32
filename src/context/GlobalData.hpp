@@ -53,6 +53,16 @@ struct MapPoint {
 struct ParametersConfig {
   bool    runOnMappingMode{};
   int32_t vacuumPWM{};
+  /// When true, line IR calibration min/max are forced to fixed values after
+  /// \c calibrate() (see MainTask). Set via CLI \c Calibration.hardcodedCalibration.
+  bool hardcodedCalibration{};
+  /// Line-follow PID gains (PathController). Set via CLI \c PID.kP, \c PID.kI, \c PID.kD.
+  float pidKp{};
+  float pidKi{};
+  float pidKd{};
+  /// Base motor PWM magnitude while mapping (see MainTask MAPPING state).
+  /// BLE: \c Mapping.mappingMotorPWM (clamped to \c RobotEnv::MAX_MOTOR_PWM).
+  int32_t mappingMotorPWM{};
 };
 
 struct GlobalData {

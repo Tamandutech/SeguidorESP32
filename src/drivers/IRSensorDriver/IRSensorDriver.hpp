@@ -34,7 +34,15 @@ public:
                       uint16_t *side_sensor_values);
   void calibrate();
 
-  QTRSensors::CalibrationData getCalibrationData();
+  /// Underlying QTR driver. Use \c calibrationOn / \c calibrationOff (public on
+  /// \c QTRSensors) to read or write per-channel min/max after arrays exist
+  /// (e.g. after \c calibrate() or \c setCalibrationOn()).
+  QTRSensors &qtrSensors() { return sensorsArray_; }
+
+  /// Total QTR channels (line + side), matches \c QTRSensors::_sensorCount.
+  uint8_t getSensorCount() const {
+    return lineSensorsCount_ + sideSensorsCount_;
+  }
 
 private:
   IRSensorPins   pins_;
@@ -112,14 +120,6 @@ void IRSensorDriver::readCalibrated(uint16_t *line_sensor_values,
   for(int i = 0; i < (sideSensorsCount_); i++) {
     side_sensor_values[i] = sensorValues_[sideSensorsMultiplexerIndex_[i]];
   }
-}
-
-QTRSensors::CalibrationData IRSensorDriver::getCalibrationData() {
-  return {
-      .initialized = sensorsArray_.calibrationOn.initialized,
-      .minimum     = sensorsArray_.calibrationOn.minimum,
-      .maximum     = sensorsArray_.calibrationOn.maximum,
-  };
 }
 
 #endif // IRSENSOR_DRIVER_HPP

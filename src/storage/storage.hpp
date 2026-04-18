@@ -10,6 +10,7 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include "esp_log.h"
@@ -37,9 +38,19 @@ public:
     return storage_instance;
   };
 
+  bool is_mounted() {
+    std::lock_guard<std::mutex> lock(fs_mutex);
+    return mount_status;
+  }
+
   esp_err_t mount_storage(std::string mount_path) {
     std::lock_guard<std::mutex> lock(fs_mutex);
+    const std::string           normalized =
+        mount_path.at(0) == '/' ? mount_path : "/" + mount_path;
     if(mount_status) {
+      if(mount_point == normalized) {
+        return ESP_OK;
+      }
       ESP_LOGE(logger_tag.c_str(),
                "FATFS already mounted at %s. To mount at %s, first unmount the "
                "previous path.",
@@ -47,7 +58,7 @@ public:
       return ESP_FAIL;
     }
 
-    mount_point = mount_path.at(0) == '/' ? mount_path : "/" + mount_path;
+    mount_point = normalized;
 
     esp_err_t mount_result = esp_vfs_fat_spiflash_mount_rw_wl(
         mount_point.c_str(), "storage", &fat_mount_config,
@@ -106,6 +117,11 @@ public:
     }
 
     fwrite(data_buffer, data_size, 1, file_handle);
+    fflush(file_handle);
+    int fd = fileno(file_handle);
+    if(fd >= 0) {
+      fsync(fd);
+    }
     ESP_LOGD(logger_tag.c_str(), "Written %s, %zu bytes", file_path.c_str(),
              data_size);
 

@@ -3,6 +3,7 @@
 
 #include "esp_log.h"
 #include <algorithm>
+#include <cerrno>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +99,27 @@ ParseError parseClassNameParameter(const char *input, ParsedReference &result) {
   return ParseError::SUCCESS;
 }
 
+// Parse a float for param_set; supports optional leading '!' for negation (same
+// convention as other parameters).
+static bool parseCliFloat(const char *value, float *out) {
+  if(value == nullptr || out == nullptr) {
+    return false;
+  }
+  bool        isNegative  = (value[0] == '!');
+  const char *actualValue = isNegative ? value + 1 : value;
+  if(actualValue[0] == '\0') {
+    return false;
+  }
+  char *end = nullptr;
+  errno     = 0;
+  float v   = strtof(actualValue, &end);
+  if(end == actualValue || *end != '\0' || errno == ERANGE) {
+    return false;
+  }
+  *out = isNegative ? -v : v;
+  return true;
+}
+
 // Helper function to get parameter value as string
 bool getParameterValue(const char *className, const char *parameterName,
                        char *valueBuffer, size_t bufferSize) {
@@ -119,7 +141,40 @@ bool getParameterValue(const char *className, const char *parameterName,
     }
   }
 
-  // TODO: Add more parameter classes (PID, etc.) as they become available
+  if(strcmp(className, "Calibration") == 0) {
+    if(strcmp(parameterName, "hardcodedCalibration") == 0) {
+      snprintf(valueBuffer, bufferSize, "%d",
+               globalData.parametersConfig.hardcodedCalibration ? 1 : 0);
+      return true;
+    }
+  }
+
+  if(strcmp(className, "Mapping") == 0) {
+    if(strcmp(parameterName, "mappingMotorPWM") == 0) {
+      snprintf(valueBuffer, bufferSize, "%ld",
+               (long)globalData.parametersConfig.mappingMotorPWM);
+      return true;
+    }
+  }
+
+  if(strcmp(className, "PID") == 0) {
+    if(strcmp(parameterName, "kP") == 0) {
+      snprintf(valueBuffer, bufferSize, "%.6f",
+               (double)globalData.parametersConfig.pidKp);
+      return true;
+    }
+    if(strcmp(parameterName, "kI") == 0) {
+      snprintf(valueBuffer, bufferSize, "%.6f",
+               (double)globalData.parametersConfig.pidKi);
+      return true;
+    }
+    if(strcmp(parameterName, "kD") == 0) {
+      snprintf(valueBuffer, bufferSize, "%.6f",
+               (double)globalData.parametersConfig.pidKd);
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -153,7 +208,47 @@ bool setParameterValue(const char *className, const char *parameterName,
     }
   }
 
-  // TODO: Add more parameter classes (PID, etc.) as they become available
+  if(strcmp(className, "Calibration") == 0) {
+    if(strcmp(parameterName, "hardcodedCalibration") == 0) {
+      int val                                          = atoi(actualValue);
+      globalData.parametersConfig.hardcodedCalibration = (val == 1);
+      return true;
+    }
+  }
+
+  if(strcmp(className, "Mapping") == 0) {
+    if(strcmp(parameterName, "mappingMotorPWM") == 0) {
+      int val = atoi(actualValue);
+      if(val < 0) {
+        val = 0;
+      }
+      if(val > RobotEnv::MAX_MOTOR_PWM) {
+        val = RobotEnv::MAX_MOTOR_PWM;
+      }
+      globalData.parametersConfig.mappingMotorPWM = static_cast<int32_t>(val);
+      return true;
+    }
+  }
+
+  if(strcmp(className, "PID") == 0) {
+    float v;
+    if(!parseCliFloat(value, &v)) {
+      return false;
+    }
+    if(strcmp(parameterName, "kP") == 0) {
+      globalData.parametersConfig.pidKp = v;
+      return true;
+    }
+    if(strcmp(parameterName, "kI") == 0) {
+      globalData.parametersConfig.pidKi = v;
+      return true;
+    }
+    if(strcmp(parameterName, "kD") == 0) {
+      globalData.parametersConfig.pidKd = v;
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -168,14 +263,36 @@ typedef int (*CommandHandler)(int argc, char *argv[]);
 //   {"data": "Parameters: 2"}
 //   {"data": "0 - State.runOnMappingMode: 0"}
 //   {"data": "1 - Vacuum.speed: 0"}
+//   {"data": "2 - Calibration.hardcodedCalibration: 0"}
+//   {"data": "3 - PID.kP: 0.017000"}
+//   {"data": "… - Mapping.mappingMotorPWM: 10"}
 static int handleParamList(int argc, char *argv[]) {
   char valueState[64];
   char valueVacuum[64];
+  char valueHardcodedCal[64];
+  char valueMappingMotorPwm[64];
+  char valuePidKp[64];
+  char valuePidKi[64];
+  char valuePidKd[64];
   bool hasState = getParameterValue("State", "runOnMappingMode", valueState,
                                     sizeof(valueState));
   bool hasVacuum =
       getParameterValue("Vacuum", "speed", valueVacuum, sizeof(valueVacuum));
-  int count = (hasState ? 1 : 0) + (hasVacuum ? 1 : 0);
+  bool hasHardcodedCal =
+      getParameterValue("Calibration", "hardcodedCalibration",
+                        valueHardcodedCal, sizeof(valueHardcodedCal));
+  bool hasMappingMotor =
+      getParameterValue("Mapping", "mappingMotorPWM", valueMappingMotorPwm,
+                        sizeof(valueMappingMotorPwm));
+  bool hasPidKp =
+      getParameterValue("PID", "kP", valuePidKp, sizeof(valuePidKp));
+  bool hasPidKi =
+      getParameterValue("PID", "kI", valuePidKi, sizeof(valuePidKi));
+  bool hasPidKd =
+      getParameterValue("PID", "kD", valuePidKd, sizeof(valuePidKd));
+  int count = (hasState ? 1 : 0) + (hasVacuum ? 1 : 0) +
+              (hasHardcodedCal ? 1 : 0) + (hasMappingMotor ? 1 : 0) +
+              (hasPidKp ? 1 : 0) + (hasPidKi ? 1 : 0) + (hasPidKd ? 1 : 0);
 
   pushDataJsonToQueue("Parameters: %d", count);
 
@@ -185,6 +302,23 @@ static int handleParamList(int argc, char *argv[]) {
   }
   if(hasVacuum) {
     pushDataJsonToQueue("%d - Vacuum.speed: %s", index++, valueVacuum);
+  }
+  if(hasHardcodedCal) {
+    pushDataJsonToQueue("%d - Calibration.hardcodedCalibration: %s", index++,
+                        valueHardcodedCal);
+  }
+  if(hasMappingMotor) {
+    pushDataJsonToQueue("%d - Mapping.mappingMotorPWM: %s", index++,
+                        valueMappingMotorPwm);
+  }
+  if(hasPidKp) {
+    pushDataJsonToQueue("%d - PID.kP: %s", index++, valuePidKp);
+  }
+  if(hasPidKi) {
+    pushDataJsonToQueue("%d - PID.kI: %s", index++, valuePidKi);
+  }
+  if(hasPidKd) {
+    pushDataJsonToQueue("%d - PID.kD: %s", index++, valuePidKd);
   }
   return CLI_SUCCESS;
 }
@@ -229,10 +363,17 @@ static int handleParamSet(int argc, char *argv[]) {
 
   if(setParameterValue(ref.className, ref.parameterName, argv[2])) {
     Storage *storage = Storage::getInstance();
+    if(!storage->is_mounted()) {
+      ESP_LOGW("CLI", "param_set: storage not mounted; RAM updated only");
+      pushDataJsonToQueue("Error: storage not mounted");
+      return CLI_SUCCESS;
+    }
     if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
        ESP_OK) {
       ESP_LOGW("CLI", "Failed to save parameters to %s",
                PARAMETERS_CONFIG_FILE);
+      pushDataJsonToQueue("Error: failed to save parameters");
+      return CLI_SUCCESS;
     }
     pushDataJsonToQueue("OK");
     return CLI_SUCCESS;
@@ -323,10 +464,11 @@ static int handleMapSaveRuntime(int argc, char *argv[]) {
 static int handleMapGet(int argc, char *argv[]) {
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    pushDataJsonToQueue("%zu,%d,%ld,%d,%ld", i, 0,
+    pushDataJsonToQueue("%zu,%d,%ld,%d,%ld", i, point.baseVacuumPWM,
                         static_cast<long>(point.encoderMilimeters),
                         static_cast<int>(point.markType),
                         static_cast<long>(point.baseMotorPWM));
+    drainCommunicationQueueToBle();
   }
   return CLI_SUCCESS;
 }

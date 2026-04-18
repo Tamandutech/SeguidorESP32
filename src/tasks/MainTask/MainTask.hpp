@@ -19,16 +19,27 @@ void mainTaskLoop(void *params) {
   (void)params;
   RobotStateMachine::toCalibration();
 
-  // Initialize storage and load configuration
+  // Storage is mounted from app_main before tasks start; ensure mounted if
+  // MainTask is ever used standalone.
   Storage  *storage      = Storage::getInstance();
   esp_err_t mount_result = storage->mount_storage("/data");
-  if(mount_result != ESP_OK) {
-    ESP_LOGW("MainTask", "Failed to mount storage, using hardcoded defaults");
+  if(mount_result != ESP_OK && !storage->is_mounted()) {
+    ESP_LOGW("MainTask", "Storage not mounted; using defaults for NV files");
   }
 
-  // Load parametersConfig from storage, use defaults if file doesn't exist
-  ParametersConfig default_parameters_config = {.runOnMappingMode = false,
-                                                .vacuumPWM        = 0};
+  // Load parametersConfig from storage, use defaults if file doesn't exist.
+  // Start from full defaults so a shorter legacy params.dat leaves new fields
+  // (e.g. PID) at their default values.
+  ParametersConfig default_parameters_config = {
+      .runOnMappingMode     = false,
+      .vacuumPWM            = 0,
+      .hardcodedCalibration = false,
+      .pidKp                = 0.017F,
+      .pidKi                = 0.0F,
+      .pidKd                = 0.068F,
+      .mappingMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+  };
+  globalData.parametersConfig = default_parameters_config;
   if(storage->file_exists("params.dat")) {
     esp_err_t read_result =
         storage->read(globalData.parametersConfig, "params.dat");
@@ -40,7 +51,6 @@ void mainTaskLoop(void *params) {
     }
   } else {
     ESP_LOGI("MainTask", "parametersConfig file not found, using defaults");
-    globalData.parametersConfig = default_parameters_config;
   }
 
   // Load mapData from storage, use defaults if file doesn't exist
@@ -82,6 +92,8 @@ void mainTaskLoop(void *params) {
   // uint16_t rawSensorValues[16];
   uint16_t sideSensorValues[4];
   uint16_t lineSensorValues[12];
+  // Only for debugging
+  uint16_t rawSensorValues[16];
 
   // Initialize pins and drivers in globalData during calibration mode
   if(globalData.motorDriver == nullptr) {
@@ -128,13 +140,18 @@ void mainTaskLoop(void *params) {
   }
 
 
+  const PathControllerConstants pathPidConstants = {
+      .kP = globalData.parametersConfig.pidKp,
+      .kI = globalData.parametersConfig.pidKi,
+      .kD = globalData.parametersConfig.pidKd,
+  };
   PathControllerParamSchema pathControllerParam = {
-      .constants      = {.kP = 0.017F, .kI = 0.00F, .kD = 0.068F},
+      .constants      = pathPidConstants,
       .sensorQuantity = 12,
       .sensorValues   = lineSensorValues,
       .maxAngle       = 45.0F, // Ângulo máximo de 45 graus
-      .radiusSensor   = 100, // Raio dos sensores em mm
-      .sensorToCenter = 50, // Distância do sensor ao centro em mm
+      .radiusSensor   = 100,   // Raio dos sensores em mm
+      .sensorToCenter = 50,    // Distância do sensor ao centro em mm
   };
   PathController *pathController = new PathController(pathControllerParam);
 
@@ -155,31 +172,65 @@ void mainTaskLoop(void *params) {
     globalData.irSensorDriver->calibrate();
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
-  QTRSensors::CalibrationData calibrationData =
-      globalData.irSensorDriver->getCalibrationData();
-  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.initialized);
-  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.minimum);
-  ESP_LOGI("MainTask", "Calibration data: %d", calibrationData.maximum);
-  if(!calibrationData.initialized ||
-     (calibrationData.maximum - calibrationData.minimum < 50)) {
+  QTRSensors::CalibrationData *calibrationData =
+      &globalData.irSensorDriver->qtrSensors().calibrationOn;
+  const uint8_t sensorCount = globalData.irSensorDriver->getSensorCount();
+
+  if(globalData.parametersConfig.hardcodedCalibration &&
+     calibrationData->initialized && calibrationData->minimum != nullptr &&
+     calibrationData->maximum != nullptr) {
+    constexpr uint16_t kHardcodedIrMin = 200;
+    constexpr uint16_t kHardcodedIrMax = 3600;
+    for(uint8_t i = 0; i < sensorCount; i++) {
+      calibrationData->minimum[i] = kHardcodedIrMin;
+      calibrationData->maximum[i] = kHardcodedIrMax;
+    }
+  }
+
+  bool calibrationOk = calibrationData->initialized &&
+                       calibrationData->minimum != nullptr &&
+                       calibrationData->maximum != nullptr;
+
+  if(calibrationOk) {
+    // One entry per multiplexer channel; same range check as before (>= 50).
+    for(uint8_t i = 0; i < sensorCount; i++) {
+      const uint16_t lo   = calibrationData->minimum[i];
+      const uint16_t hi   = calibrationData->maximum[i];
+      const int      diff = (int)hi - (int)lo;
+      ESP_LOGI("MainTask",
+               "Calibration sensor %u: min=%u max=%u diff=%d initialized=%d",
+               (unsigned)i, (unsigned)lo, (unsigned)hi, diff,
+               calibrationData->initialized);
+      if(diff < 50) {
+        calibrationOk = false;
+        pushMessageToQueue(
+            "Error: Sensor %u calibrado incorretamente (range: %u, "
+            "%u, difference: %d, initialized: %d)",
+            (unsigned)i, (unsigned)lo, (unsigned)hi, diff,
+            calibrationData->initialized);
+      }
+    }
+  }
+
+  if(!calibrationOk) {
     globalData.isProperlyCalibrated = false;
     ESP_LOGI("MainTask", "Sensores não calibrados");
-    pushMessageToQueue("Error: Sensores calibrados incorretamente (range: %d, "
-                       "%d, difference: %d, initialized: %d)",
-                       calibrationData.minimum, calibrationData.maximum,
-                       calibrationData.maximum - calibrationData.minimum,
-                       calibrationData.initialized);
+    if(!calibrationData->initialized || calibrationData->minimum == nullptr ||
+       calibrationData->maximum == nullptr) {
+      pushMessageToQueue("Error: Sensores calibrados incorretamente "
+                         "(initialized: %d, pointers ok: %d)",
+                         calibrationData->initialized,
+                         calibrationData->minimum != nullptr &&
+                             calibrationData->maximum != nullptr);
+    }
   } else {
     globalData.isProperlyCalibrated = true;
     ESP_LOGI("MainTask", "Sensores calibrados");
-    pushMessageToQueue("Sensores calibrados corretamente (range: %d, "
-                       "%d, difference: %d, initialized: %d)",
-                       calibrationData.minimum, calibrationData.maximum,
-                       calibrationData.maximum - calibrationData.minimum,
-                       calibrationData.initialized);
+    pushMessageToQueue(
+        "Sensores calibrados corretamente (%u sensores verificados, "
+        "initialized: %d)",
+        (unsigned)sensorCount, calibrationData->initialized);
   }
-  globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
-  globalData.ledRgbDriver->refresh();
 
   RobotStateMachine::toIdle(globalData.motorDriver, globalData.vacuumDriver);
   ESP_LOGI("MainTask", "Escolha entre modo de mapeamento ou modo de corrida");
@@ -297,7 +348,7 @@ void mainTaskLoop(void *params) {
 
           globalData.mapData.push_back(
               {.encoderMilimeters = encoderMilimetersAverage,
-               .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
+               .baseMotorPWM      = globalData.parametersConfig.mappingMotorPWM,
                .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
                .markType          = MapPoint::MarkType::STOP_COMMAND_MARK});
 
@@ -335,9 +386,9 @@ void mainTaskLoop(void *params) {
               ESP_LOGI("MainTask", "Mark found on the right side");
               globalData.mapData.push_back(
                   {.encoderMilimeters = encoderMilimetersAverage,
-                   .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
-                   .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
-                   .markType          = MapPoint::MarkType::RIGHT_MARK});
+                   .baseMotorPWM  = globalData.parametersConfig.mappingMotorPWM,
+                   .baseVacuumPWM = RobotEnv::BASE_VACUUM_PWM,
+                   .markType      = MapPoint::MarkType::RIGHT_MARK});
               if(alternateLedColorFlag) {
                 globalData.ledRgbDriver->setColor(0, LED_COLOR_GREEN);
                 alternateLedColorFlag = false;
@@ -355,9 +406,9 @@ void mainTaskLoop(void *params) {
 
               globalData.mapData.push_back(
                   {.encoderMilimeters = encoderMilimetersAverage,
-                   .baseMotorPWM      = RobotEnv::MAPPING_MOTOR_PWM,
-                   .baseVacuumPWM     = RobotEnv::BASE_VACUUM_PWM,
-                   .markType          = MapPoint::MarkType::LEFT_MARK});
+                   .baseMotorPWM  = globalData.parametersConfig.mappingMotorPWM,
+                   .baseVacuumPWM = RobotEnv::BASE_VACUUM_PWM,
+                   .markType      = MapPoint::MarkType::LEFT_MARK});
 
               lastLeftReadIsOnMark  = true;
               lastRightReadIsOnMark = false;
@@ -382,14 +433,17 @@ void mainTaskLoop(void *params) {
 
         float pathPID = pathController->getPID();
 
-        globalData.motorDriver->pwmOutput(RobotEnv::MAPPING_MOTOR_PWM + pathPID,
-                                          RobotEnv::MAPPING_MOTOR_PWM -
-                                              pathPID);
+        {
+          const float base =
+              static_cast<float>(globalData.parametersConfig.mappingMotorPWM);
+          globalData.motorDriver->pwmOutput(
+              static_cast<int32_t>(base + pathPID),
+              static_cast<int32_t>(base - pathPID));
+        }
+        globalData.vacuumDriver->pwmOutput(
+            globalData.parametersConfig.vacuumPWM);
 
         // printf("\033[2J\033[H");
-        // for(int i = 0; i < 16; i++) {
-        //   printf("%4d ", lineSensorValues[i]);
-        // }
         // printf("L: ");
         // for(int i = 0; i < 12; i++) {
         //   printf("%4d ", lineSensorValues[i]);
@@ -410,20 +464,21 @@ void mainTaskLoop(void *params) {
         vTaskDelay(1 / portTICK_PERIOD_MS);
       }
     } else {
-      // globalData.irSensorDriver->readCalibrated(lineSensorValues,
-      //                                           sideSensorValues);
+      // globalData.irSensorDriver->read(rawSensorValues);
       // printf("\033[2J\033[H");
+      // printf("Raw Sensor Values:\n");
       // for(int i = 0; i < 16; i++) {
-      //   printf("%4d ", lineSensorValues[i]);
+      //   printf("%4d ", rawSensorValues[i]);
       // }
+      // printf("\n");
 
       // IDLE or other state: keep task alive and re-check state periodically
       if(globalData.isProperlyCalibrated) {
         if(alternateLedColorFlag) {
-          globalData.ledRgbDriver->setColor(0, LED_COLOR_PURPLE, 0.75f);
+          globalData.ledRgbDriver->setColor(0, LED_COLOR_PURPLE, 0.5f);
           alternateLedColorFlag = false;
         } else {
-          globalData.ledRgbDriver->setColor(0, LED_COLOR_WHITE, 0.75f);
+          globalData.ledRgbDriver->setColor(0, LED_COLOR_WHITE, 0.5f);
           alternateLedColorFlag = true;
         }
         globalData.ledRgbDriver->setColor(1, LED_COLOR_BLUE);

@@ -556,7 +556,8 @@ public:
   /// sanity checking, etc.
   /// \{
 
-  /// Data from calibrating with emitters on.
+  /// Data from calibrating with emitters on. Writable from outside once
+  /// \p initialized is true (arrays allocated), e.g. after calibrate().
   CalibrationData calibrationOn;
 
   /// Data from calibrating with emitters off.
