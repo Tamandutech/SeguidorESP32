@@ -23,7 +23,7 @@ void app_main() {
 
   // Outgoing BLE/log queue. map_get drains to UART after each line from CLI;
   // extra depth helps MainTask bursts.
-  globalData.communicationQueue = xQueueCreate(24, sizeof(Message));
+  globalData.communicationQueue = xQueueCreate(48, sizeof(Message));
   if(globalData.communicationQueue == NULL) {
     ESP_LOGE("Main", "Failed to create communication queue");
     return;
