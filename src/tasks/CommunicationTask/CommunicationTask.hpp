@@ -37,7 +37,7 @@ void uartReceiveCallback(struct ble_gatt_access_ctxt *ctxt) {
   uartMsg.text[copy_len] = '\0';
 
   if(xQueueSend(globalData.receivedUartMessages, &uartMsg, 0) != pdTRUE) {
-    ESP_LOGW("CommunicationTask",
+    ESP_LOGI("CommunicationTask",
              "receivedUartMessages full, dropping (len=%u)",
              static_cast<unsigned>(data_len));
   }
@@ -97,23 +97,30 @@ void communicationTaskLoop(void *params) {
   nordic_uart_start("TT_SEMREH", uartStatusChangeCallback);
   nordic_uart_yield(uartReceiveCallback);
 
-  Message             receivedMessage;
-  ReceivedUartMessage uartMsg;
-
   for(;;) {
-    while(xQueueReceive(globalData.receivedUartMessages, &uartMsg, 0) ==
-          pdTRUE) {
-      ESP_LOGI("CommunicationTask", "BLE UART received data: %s", uartMsg.text);
-      processReceivedUartLine(uartMsg.text);
-      drainOutgoingMessages();
+    // Keep large stack objects in narrow scopes so BLE RX + CLI + map_get +
+    // drainOutgoingMessages + NimBLE notify do not overlap two ~2 KiB Messages.
+    {
+      ReceivedUartMessage uartMsg;
+      if(xQueueReceive(globalData.receivedUartMessages, &uartMsg,
+                       pdMS_TO_TICKS(100)) == pdTRUE) {
+
+        ESP_LOGI("CommunicationTask", "BLE UART received data: %s",
+                 uartMsg.text);
+        processReceivedUartLine(uartMsg.text);
+        drainOutgoingMessages();
+      }
     }
 
-    if(xQueueReceive(globalData.communicationQueue, &receivedMessage,
-                     pdMS_TO_TICKS(100)) == pdTRUE) {
-      processMessage(receivedMessage);
-      while(xQueueReceive(globalData.communicationQueue, &receivedMessage, 0) ==
-            pdTRUE) {
+    {
+      Message receivedMessage;
+      if(xQueueReceive(globalData.communicationQueue, &receivedMessage,
+                       pdMS_TO_TICKS(100)) == pdTRUE) {
         processMessage(receivedMessage);
+        while(xQueueReceive(globalData.communicationQueue, &receivedMessage,
+                            0) == pdTRUE) {
+          processMessage(receivedMessage);
+        }
       }
     }
 

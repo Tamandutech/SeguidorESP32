@@ -468,7 +468,6 @@ static int handleMapGet(int argc, char *argv[]) {
                         static_cast<long>(point.encoderMilimeters),
                         static_cast<int>(point.markType),
                         static_cast<long>(point.baseMotorPWM));
-    drainCommunicationQueueToBle();
   }
   return CLI_SUCCESS;
 }
@@ -489,21 +488,22 @@ static int handleMapGetRuntime(int argc, char *argv[]) {
 }
 
 // Runtime Commands
-static int handleRuntimeList(int argc, char *argv[]) {
-  std::string list;
-  int         count = 0;
-  char        value[64];
-  if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
-    char line[128];
-    snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n", count++,
-             value);
-    list += line;
-  }
-  std::string out =
-      "Runtime Parameters: " + std::to_string(count) + "\n" + list;
-  pushDataJsonToQueue("%s", out.c_str());
-  return CLI_SUCCESS;
-}
+// static int handleRuntimeList(int argc, char *argv[]) {
+//   std::string list;
+//   int         count = 0;
+//   char        value[64];
+//   if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
+//     char line[128];
+//     snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n",
+//     count++,
+//              value);
+//     list += line;
+//   }
+//   std::string out =
+//       "Runtime Parameters: " + std::to_string(count) + "\n" + list;
+//   pushDataJsonToQueue("%s", out.c_str());
+//   return CLI_SUCCESS;
+// }
 
 // Control Commands
 static int handlePause(int argc, char *argv[]) {
@@ -561,28 +561,28 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
   return adc2_handle;
 }
 
-static int handleBatVoltage(int argc, char *argv[]) {
-  adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
-  if(adc_handle == nullptr) {
-    pushDataJsonToQueue("0.0");
-    return CLI_SUCCESS;
-  }
+// static int handleBatVoltage(int argc, char *argv[]) {
+//   adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
+//   if(adc_handle == nullptr) {
+//     pushDataJsonToQueue("0.0");
+//     return CLI_SUCCESS;
+//   }
 
-  int       adc_raw = 0;
-  esp_err_t ret     = adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &adc_raw);
+//   int       adc_raw = 0;
+//   esp_err_t ret     = adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &adc_raw);
 
-  if(ret != ESP_OK) {
-    ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
-             esp_err_to_name(ret));
-    pushDataJsonToQueue("0.0");
-    return CLI_SUCCESS;
-  }
+//   if(ret != ESP_OK) {
+//     ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
+//              esp_err_to_name(ret));
+//     pushDataJsonToQueue("0.0");
+//     return CLI_SUCCESS;
+//   }
 
-  uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
+//   uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
 
-  pushDataJsonToQueue("%d.0", voltage_mv);
-  return CLI_SUCCESS;
-}
+//   pushDataJsonToQueue("%d.0", voltage_mv);
+//   return CLI_SUCCESS;
+// }
 
 // Command map initialization function
 static std::unordered_map<std::string, CommandHandler> &getCommandMap() {
@@ -599,11 +599,11 @@ static std::unordered_map<std::string, CommandHandler> &getCommandMap() {
       {"map_get",         handleMapGet        },
       {"map_getRuntime",  handleMapGetRuntime },
       // Runtime Commands
-      {"runtime_list",    handleRuntimeList   },
+      // {"runtime_list",    handleRuntimeList   },
       // Control Commands
       {"pause",           handlePause         },
       {"resume",          handleResume        },
-      {"bat_voltage",     handleBatVoltage    },
+      // {"bat_voltage",     handleBatVoltage    },
   };
   return commandMap;
 }

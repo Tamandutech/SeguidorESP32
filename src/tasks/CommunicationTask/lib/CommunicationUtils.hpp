@@ -10,20 +10,6 @@
 #include "../nimble-nordic-uart/nimble-nordic-uart.h"
 #include "context/GlobalData.hpp"
 
-/// Pop and send every pending \c Message on \c globalData.communicationQueue
-/// over BLE. Needed when the Communication task enqueues responses while still
-/// inside \c cli() (e.g. \c map_get): the queue is not drained until \c cli()
-/// returns, so without this the queue depth caps how many lines one command
-/// can emit (see \c xQueueCreate size in \c main.cpp).
-inline void drainCommunicationQueueToBle() {
-  Message msg;
-  while(xQueueReceive(globalData.communicationQueue, &msg, 0) == pdTRUE) {
-    if(msg.header.type == MessageType::LOG) {
-      (void)nordic_uart_send(msg.data.message);
-    }
-  }
-}
-
 void pushMessageToQueue(const char *message, ...) {
   Message msg;
   msg.header.type = MessageType::LOG;

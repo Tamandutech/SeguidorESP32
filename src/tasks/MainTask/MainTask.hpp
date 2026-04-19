@@ -79,6 +79,17 @@ void mainTaskLoop(void *params) {
     globalData.mapData = default_map_data;
   }
 
+  ESP_LOGI("MainTask", "mapData: %zu points", globalData.mapData.size());
+  for(size_t i = 0; i < globalData.mapData.size(); i++) {
+    const MapPoint &point = globalData.mapData[i];
+    ESP_LOGI(
+        "MainTask",
+        "point %zu: baseVacuumPWM=%ld, encoderMilimeters=%ld, markType=%d, "
+        "baseMotorPWM=%ld",
+        i, point.baseVacuumPWM, point.encoderMilimeters, point.markType,
+        point.baseMotorPWM);
+  }
+
   // Set finishLineCount to the last point's encoderMilimeters from mapData
   int32_t finishLineCount = 0;
   if(!globalData.mapData.empty()) {

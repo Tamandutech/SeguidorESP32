@@ -23,14 +23,14 @@ void app_main() {
 
   // Outgoing BLE/log queue. map_get drains to UART after each line from CLI;
   // extra depth helps MainTask bursts.
-  globalData.communicationQueue = xQueueCreate(32, sizeof(Message));
+  globalData.communicationQueue = xQueueCreate(24, sizeof(Message));
   if(globalData.communicationQueue == NULL) {
     ESP_LOGE("Main", "Failed to create communication queue");
     return;
   }
 
   globalData.receivedUartMessages =
-      xQueueCreate(10, sizeof(ReceivedUartMessage));
+      xQueueCreate(24, sizeof(ReceivedUartMessage));
   if(globalData.receivedUartMessages == NULL) {
     ESP_LOGE("Main", "Failed to create receivedUartMessages queue");
     return;
@@ -38,22 +38,21 @@ void app_main() {
 
   // Mount FAT before any task runs so BLE param_set / map save see a mounted FS
   // (CommunicationTask can run before MainTask would otherwise mount here).
-  {
-    Storage  *storage      = Storage::getInstance();
-    esp_err_t mount_result = storage->mount_storage("/data");
-    if(mount_result != ESP_OK) {
-      ESP_LOGE("Main",
-               "FAT mount failed (%s); params.dat / map will not persist until "
-               "fixed",
-               esp_err_to_name(mount_result));
-    }
-  }
+  // {
+  //   Storage  *storage      = Storage::getInstance();
+  //   esp_err_t mount_result = storage->mount_storage("/data");
+  //   if(mount_result != ESP_OK) {
+  //     ESP_LOGE("Main",
+  //              "FAT mount failed (%s); params.dat / map will not persist
+  //              until " "fixed", esp_err_to_name(mount_result));
+  //   }
+  // }
 
   // Stack sizes are in **words** (typically 4 bytes on ESP32-S3). Two stacks of
   // 60000 words (~240 KiB each) exceed the largest internal RAM heap block
   // (~283 KiB), so the second xTaskCreatePinnedToCore can fail silently and
   // MainTask never runs while BLE still works.
-  constexpr UBaseType_t kCommTaskStackWords = 8192;  // 32 KiB
+  constexpr UBaseType_t kCommTaskStackWords = 16384; // 64 KiB
   constexpr UBaseType_t kMainTaskStackWords = 16384; // 64 KiB
 
   TaskHandle_t communicationTaskHandle = nullptr;

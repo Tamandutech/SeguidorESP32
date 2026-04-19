@@ -323,7 +323,7 @@ esp_err_t _nordic_uart_send(const char *message) {
     int err_count = 0;
   do_notify:
     om = ble_hs_mbuf_from_flat(&message[i], MIN(BLE_SEND_MTU, len - i));
-    err = ble_gattc_notify_custom(ble_conn_hdl, notify_char_attr_hdl, om);
+    err = ble_gatts_notify_custom(ble_conn_hdl, notify_char_attr_hdl, om);
     if (err == BLE_HS_ENOMEM && err_count++ < 10) {
       vTaskDelay(100 / portTICK_PERIOD_MS);
       goto do_notify;
