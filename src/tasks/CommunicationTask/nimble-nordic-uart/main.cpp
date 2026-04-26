@@ -4,6 +4,7 @@
 #include "esp_nimble_hci.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/ringbuf.h"
+#include "host/ble_att.h"
 #include "host/ble_hs.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -17,7 +18,9 @@ static const char *_TAG = "NORDIC UART";
 #define CONFIG_NORDIC_UART_MAX_LINE_LENGTH 256
 #define CONFIG_NORDIC_UART_RX_BUFFER_SIZE  4096
 
-#define BLE_SEND_MTU 128
+// Fallback when ATT MTU is still default (23); real chunk uses negotiated MTU.
+#define BLE_SEND_MTU_FALLBACK 20
+#define BLE_SEND_CHUNK_MAX    512
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define B0(x)     ((x) & 0xFF)
@@ -36,7 +39,6 @@ static const char *_TAG = "NORDIC UART";
   )
 // clang-format off
 
-// Split the message in BLE_SEND_MTU and send it.
 esp_err_t nordic_uart_send(const char *message) { //
   return _nordic_uart_send(message);
 }
@@ -311,18 +313,33 @@ static void ble_host_task(void *param) {
   _nordic_uart_buf_deinit();
 }
 
-// Split the message in BLE_SEND_MTU and send it.
+static int nordic_uart_notify_chunk_bytes(void) {
+  uint16_t mtu = ble_att_mtu(ble_conn_hdl);
+  if (mtu <= 3) {
+    return BLE_SEND_MTU_FALLBACK;
+  }
+  int chunk = (int)mtu - 3;
+  if (chunk < BLE_SEND_MTU_FALLBACK) {
+    chunk = BLE_SEND_MTU_FALLBACK;
+  }
+  if (chunk > BLE_SEND_CHUNK_MAX) {
+    chunk = BLE_SEND_CHUNK_MAX;
+  }
+  return chunk;
+}
+
+// Split the message into ATT-sized notify payloads (one notify per chunk).
 esp_err_t _nordic_uart_send(const char *message) {
   const int len = strlen(message) + 1; // Include null terminator
   if (len == 1) // Only null terminator
     return ESP_OK;
-  // Split the message in BLE_SEND_MTU and send it.
-  for (int i = 0; i < len; i += BLE_SEND_MTU) {
+  const int chunk = nordic_uart_notify_chunk_bytes();
+  for (int i = 0; i < len; i += chunk) {
     int err;
     struct os_mbuf *om;
     int err_count = 0;
   do_notify:
-    om = ble_hs_mbuf_from_flat(&message[i], MIN(BLE_SEND_MTU, len - i));
+    om = ble_hs_mbuf_from_flat(&message[i], MIN(chunk, len - i));
     err = ble_gatts_notify_custom(ble_conn_hdl, notify_char_attr_hdl, om);
     if (err == BLE_HS_ENOMEM && err_count++ < 10) {
       vTaskDelay(100 / portTICK_PERIOD_MS);

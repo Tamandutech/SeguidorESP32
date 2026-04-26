@@ -3,6 +3,7 @@
 
 #include "esp_log.h"
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cstdarg>
 #include <cstdio>
@@ -10,8 +11,9 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "../lib/CommunicationUtils.hpp"
+#include "../lib/WireProtocol.hpp"
 #include "context/GlobalData.hpp"
 #include "context/RobotEnv.hpp"
 #include "context/RobotStateMachine.hpp"
@@ -252,266 +254,248 @@ bool setParameterValue(const char *className, const char *parameterName,
   return false;
 }
 
-// Command handler function pointer type
-typedef int (*CommandHandler)(int argc, char *argv[]);
+using WireCommand = wire::Command;
 
-// ========== Command Handler Functions ==========
+// --- Command implementations (wire in / wire out) ------------------------
 
-// Parameter Commands
-//
-// param_list sends one outgoing JSON message per line (TamanduCLI / BLE), e.g.:
-//   {"data": "Parameters: 2"}
-//   {"data": "0 - State.runOnMappingMode: 0"}
-//   {"data": "1 - Vacuum.speed: 0"}
-//   {"data": "2 - Calibration.hardcodedCalibration: 0"}
-//   {"data": "3 - PID.kP: 0.017000"}
-//   {"data": "… - Mapping.mappingMotorPWM: 10"}
-static int handleParamList(int argc, char *argv[]) {
-  char valueState[64];
-  char valueVacuum[64];
-  char valueHardcodedCal[64];
-  char valueMappingMotorPwm[64];
-  char valuePidKp[64];
-  char valuePidKi[64];
-  char valuePidKd[64];
-  bool hasState = getParameterValue("State", "runOnMappingMode", valueState,
-                                    sizeof(valueState));
-  bool hasVacuum =
-      getParameterValue("Vacuum", "speed", valueVacuum, sizeof(valueVacuum));
-  bool hasHardcodedCal =
-      getParameterValue("Calibration", "hardcodedCalibration",
-                        valueHardcodedCal, sizeof(valueHardcodedCal));
-  bool hasMappingMotor =
-      getParameterValue("Mapping", "mappingMotorPWM", valueMappingMotorPwm,
-                        sizeof(valueMappingMotorPwm));
-  bool hasPidKp =
-      getParameterValue("PID", "kP", valuePidKp, sizeof(valuePidKp));
-  bool hasPidKi =
-      getParameterValue("PID", "kI", valuePidKi, sizeof(valuePidKi));
-  bool hasPidKd =
-      getParameterValue("PID", "kD", valuePidKd, sizeof(valuePidKd));
-  int count = (hasState ? 1 : 0) + (hasVacuum ? 1 : 0) +
-              (hasHardcodedCal ? 1 : 0) + (hasMappingMotor ? 1 : 0) +
-              (hasPidKp ? 1 : 0) + (hasPidKi ? 1 : 0) + (hasPidKd ? 1 : 0);
+static int wireParamList() {
+  struct Row {
+    const char *nameCol;
+    char        valueBuf[64];
+  };
+  std::vector<Row> rows;
+  char             v[64];
 
-  pushDataJsonToQueue("Parameters: %d", count);
+  if(getParameterValue("State", "runOnMappingMode", v, sizeof(v))) {
+    rows.push_back({"State.runOnMappingMode", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("Vacuum", "speed", v, sizeof(v))) {
+    rows.push_back({"Vacuum.speed", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("Calibration", "hardcodedCalibration", v, sizeof(v))) {
+    rows.push_back({"Calibration.hardcodedCalibration", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("Mapping", "mappingMotorPWM", v, sizeof(v))) {
+    rows.push_back({"Mapping.mappingMotorPWM", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("PID", "kP", v, sizeof(v))) {
+    rows.push_back({"PID.kP", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("PID", "kI", v, sizeof(v))) {
+    rows.push_back({"PID.kI", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
+  if(getParameterValue("PID", "kD", v, sizeof(v))) {
+    rows.push_back({"PID.kD", {}});
+    strncpy(rows.back().valueBuf, v, sizeof(rows.back().valueBuf) - 1);
+  }
 
-  int index = 0;
-  if(hasState) {
-    pushDataJsonToQueue("%d - State.runOnMappingMode: %s", index++, valueState);
+  std::vector<std::string> rowWire;
+  rowWire.reserve(rows.size());
+  for(const Row &r : rows) {
+    char piece[MESSAGE_LOG_MESSAGE_SIZE];
+    size_t pp = 0;
+    char idxs[16];
+    snprintf(idxs, sizeof(idxs), "%d", static_cast<int>(rowWire.size()) + 1);
+    if(!wire::appendListBody(piece, sizeof(piece), pp, "param_list", 'b', 's',
+                      static_cast<int>(rowWire.size()) + 1,
+                      {r.nameCol, r.valueBuf})) {
+      return CLI_ERROR_COMMAND_NOT_FOUND;
+    }
+    rowWire.emplace_back(piece);
   }
-  if(hasVacuum) {
-    pushDataJsonToQueue("%d - Vacuum.speed: %s", index++, valueVacuum);
-  }
-  if(hasHardcodedCal) {
-    pushDataJsonToQueue("%d - Calibration.hardcodedCalibration: %s", index++,
-                        valueHardcodedCal);
-  }
-  if(hasMappingMotor) {
-    pushDataJsonToQueue("%d - Mapping.mappingMotorPWM: %s", index++,
-                        valueMappingMotorPwm);
-  }
-  if(hasPidKp) {
-    pushDataJsonToQueue("%d - PID.kP: %s", index++, valuePidKp);
-  }
-  if(hasPidKi) {
-    pushDataJsonToQueue("%d - PID.kI: %s", index++, valuePidKi);
-  }
-  if(hasPidKd) {
-    pushDataJsonToQueue("%d - PID.kD: %s", index++, valuePidKd);
-  }
+  wire::emitListFromBodySegments("param_list", rowWire);
   return CLI_SUCCESS;
 }
 
-static int handleParamGet(int argc, char *argv[]) {
-  if(argc < 2) {
-    ESP_LOGW("CLI", "param_get requires a parameter reference\n");
+static int wireParamGet(const WireCommand &w) {
+  if(w.argc < 3) {
+    ESP_LOGW("CLI", "param_get(s,r,ref) missing args\n");
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-
   ParsedReference ref;
-  ParseError      parseError = parseClassNameParameter(argv[1], ref);
-  if(parseError != ParseError::SUCCESS) {
-    ESP_LOGW("CLI", "Invalid parameter format: %s\n", argv[1]);
+  ParseError pe = parseClassNameParameter(w.argv[2], ref);
+  if(pe != ParseError::SUCCESS) {
+    ESP_LOGW("CLI", "param_get: bad ref\n");
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-
   char value[64];
-  if(getParameterValue(ref.className, ref.parameterName, value,
-                       sizeof(value))) {
-    pushDataJsonToQueue("%s", value);
-    return CLI_SUCCESS;
-  } else {
-    ESP_LOGW("CLI", "Parameter not found: %s.%s\n", ref.className,
-             ref.parameterName);
+  if(!getParameterValue(ref.className, ref.parameterName, value,
+                        sizeof(value))) {
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-}
-
-static int handleParamSet(int argc, char *argv[]) {
-  if(argc < 3) {
-    ESP_LOGW("CLI", "param_set requires parameter reference and value\n");
-    return CLI_ERROR_COMMAND_NOT_FOUND;
-  }
-
-  ParsedReference ref;
-  ParseError      parseError = parseClassNameParameter(argv[1], ref);
-  if(parseError != ParseError::SUCCESS) {
-    ESP_LOGW("CLI", "Invalid parameter format: %s\n", argv[1]);
-    return CLI_ERROR_COMMAND_NOT_FOUND;
-  }
-
-  if(setParameterValue(ref.className, ref.parameterName, argv[2])) {
-    Storage *storage = Storage::getInstance();
-    if(!storage->is_mounted()) {
-      ESP_LOGW("CLI", "param_set: storage not mounted; RAM updated only");
-      pushDataJsonToQueue("Error: storage not mounted");
-      return CLI_SUCCESS;
-    }
-    if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
-       ESP_OK) {
-      ESP_LOGW("CLI", "Failed to save parameters to %s",
-               PARAMETERS_CONFIG_FILE);
-      pushDataJsonToQueue("Error: failed to save parameters");
-      return CLI_SUCCESS;
-    }
-    pushDataJsonToQueue("OK");
-    return CLI_SUCCESS;
-  } else {
-    ESP_LOGW("CLI", "Parameter not found or cannot be set: %s.%s\n",
-             ref.className, ref.parameterName);
-    return CLI_ERROR_COMMAND_NOT_FOUND;
-  }
-}
-
-// Mapping Commands
-
-
-static int handleMapClear(int argc, char *argv[]) {
-  globalData.mapData.clear();
-  pushDataJsonToQueue("OK");
+  wire::emitSingleResponse("param_get", {value});
   return CLI_SUCCESS;
 }
 
-static int handleMapClearFlash(int argc, char *argv[]) {
+static int paramSetRamOnly(const char *refWire, const char *valueWire) {
+  ParsedReference ref;
+  ParseError      pe = parseClassNameParameter(refWire, ref);
+  if(pe != ParseError::SUCCESS) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  if(!setParameterValue(ref.className, ref.parameterName, valueWire)) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return CLI_SUCCESS;
+}
+
+static bool paramSetPersistWireError() {
+  Storage *storage = Storage::getInstance();
+  if(!storage->is_mounted()) {
+    ESP_LOGW("CLI", "param_set: storage not mounted");
+    wire::emitSingleResponse("param_set", {"error", "storage not mounted"});
+    return false;
+  }
+  if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
+     ESP_OK) {
+    wire::emitSingleResponse("param_set", {"error", "failed to save parameters"});
+    return false;
+  }
+  return true;
+}
+
+static int wireParamSetSingle(const WireCommand &w) {
+  if(w.argc < 4) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  if(paramSetRamOnly(w.argv[2], w.argv[3]) != CLI_SUCCESS) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  if(!paramSetPersistWireError()) {
+    return CLI_SUCCESS;
+  }
+  wire::emitSingleResponse("param_set", {"ok"});
+  return CLI_SUCCESS;
+}
+
+static int wireParamSetBodyRamOnly(const WireCommand &w) {
+  if(w.argc < 5) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return paramSetRamOnly(w.argv[3], w.argv[4]);
+}
+
+static int wireParamSetLoneBody(const WireCommand &w) {
+  if(w.argc < 5) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  if(paramSetRamOnly(w.argv[3], w.argv[4]) != CLI_SUCCESS) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  if(!paramSetPersistWireError()) {
+    return CLI_SUCCESS;
+  }
+  wire::emitSingleResponse("param_set", {"ok"});
+  return CLI_SUCCESS;
+}
+
+static int wireMapClear() {
+  globalData.mapData.clear();
+  wire::emitSingleResponse("map_clear", {"ok"});
+  return CLI_SUCCESS;
+}
+
+static int wireMapClearStorage() {
   Storage              *storage = Storage::getInstance();
   std::vector<MapPoint> emptyMap;
   esp_err_t             ret = storage->write_vector(emptyMap, MAP_STORAGE_FILE);
   if(ret != ESP_OK) {
-    ESP_LOGE("CLI", "map_clearFlash: failed to clear Flash (%s)",
-             esp_err_to_name(ret));
-    pushDataJsonToQueue("Error: Failed to clear Flash");
+    ESP_LOGE("CLI", "map_clear_storage failed (%s)", esp_err_to_name(ret));
+    wire::emitSingleResponse("map_clear_storage", {"error", "Failed to clear Flash"});
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-  pushDataJsonToQueue("OK");
+  wire::emitSingleResponse("map_clear_storage", {"ok"});
   return CLI_SUCCESS;
 }
 
-static int handleMapAdd(int argc, char *argv[]) {
-  if(argc < 2) {
-    ESP_LOGW("CLI", "map_add requires a payload\n");
+static bool parseMapAddBodyFields(const WireCommand &w, int argStart,
+                                  int32_t *vacuumPWM, int32_t *encMedia,
+                                  int *trackStatus, int32_t *offset) {
+  if(w.argc < argStart + 4) {
+    return false;
+  }
+  *vacuumPWM   = static_cast<int32_t>(atoi(w.argv[argStart]));
+  *encMedia    = static_cast<int32_t>(atoi(w.argv[argStart + 1]));
+  *trackStatus = atoi(w.argv[argStart + 2]);
+  *offset      = static_cast<int32_t>(atoi(w.argv[argStart + 3]));
+  return true;
+}
+
+static int wireMapAddBody(const WireCommand &w, bool sortAfter) {
+  int32_t vacuumPWM, encMedia, offset;
+  int     trackStatus = 0;
+  if(!parseMapAddBodyFields(w, 3, &vacuumPWM, &encMedia, &trackStatus,
+                             &offset)) {
+    ESP_LOGW("CLI", "map_add body: need 4 fields after idx\n");
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-
-  char payloadCopy[512];
-  strncpy(payloadCopy, argv[1], sizeof(payloadCopy) - 1);
-  payloadCopy[sizeof(payloadCopy) - 1] = '\0';
-
-  char *record     = strtok(payloadCopy, ";");
-  int   addedCount = 0;
-
-  while(record != nullptr) {
-    int id, vacuumPWM, encMedia, trackStatus, offset;
-    if(sscanf(record, "%d,%d,%d,%d,%d", &id, &vacuumPWM, &encMedia,
-              &trackStatus, &offset) == 5) {
-      MapPoint point;
-      point.encoderMilimeters = static_cast<int32_t>(encMedia);
-      point.baseMotorPWM      = static_cast<int32_t>(offset);
-      point.baseVacuumPWM     = static_cast<int32_t>(vacuumPWM);
-      point.markType          = static_cast<MapPoint::MarkType>(trackStatus);
-      globalData.mapData.push_back(point);
-      addedCount++;
-    }
-    record = strtok(nullptr, ";");
-  }
-
-  if(addedCount > 0) {
+  MapPoint point;
+  point.encoderMilimeters = encMedia;
+  point.baseMotorPWM      = offset;
+  point.baseVacuumPWM     = vacuumPWM;
+  point.markType          = static_cast<MapPoint::MarkType>(trackStatus);
+  globalData.mapData.push_back(point);
+  if(sortAfter) {
     std::sort(globalData.mapData.begin(), globalData.mapData.end(),
               [](const MapPoint &a, const MapPoint &b) {
                 return a.encoderMilimeters < b.encoderMilimeters;
               });
-    pushDataJsonToQueue("OK");
-    return CLI_SUCCESS;
-  } else {
-    ESP_LOGW("CLI", "Failed to parse any mapping records\n");
-    return CLI_ERROR_COMMAND_NOT_FOUND;
+    wire::emitSingleResponse("map_add", {"ok"});
   }
+  return CLI_SUCCESS;
 }
 
-static int handleMapSaveRuntime(int argc, char *argv[]) {
+static int wireMapSave() {
   Storage  *storage = Storage::getInstance();
   esp_err_t ret = storage->write_vector(globalData.mapData, MAP_STORAGE_FILE);
   if(ret != ESP_OK) {
-    ESP_LOGE("CLI", "map_SaveRuntime: failed to save to Flash (%s)",
-             esp_err_to_name(ret));
-    pushDataJsonToQueue("Error: Failed to save to Flash");
+    ESP_LOGE("CLI", "map_save failed (%s)", esp_err_to_name(ret));
+    wire::emitSingleResponse("map_save", {"error", "Failed to save to Flash"});
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-  pushDataJsonToQueue("OK");
+  wire::emitSingleResponse("map_save", {"ok"});
   return CLI_SUCCESS;
 }
 
-static int handleMapGet(int argc, char *argv[]) {
+static int wireMapGet() {
+  std::vector<std::string> bodies;
   for(size_t i = 0; i < globalData.mapData.size(); i++) {
     const MapPoint &point = globalData.mapData[i];
-    pushDataJsonToQueue("%zu,%d,%ld,%d,%ld", i, point.baseVacuumPWM,
-                        static_cast<long>(point.encoderMilimeters),
-                        static_cast<int>(point.markType),
-                        static_cast<long>(point.baseMotorPWM));
+    char            vacuum[16], enc[16], mark[16], motor[16], idxs[16];
+    snprintf(idxs, sizeof(idxs), "%zu", i + 1);
+    snprintf(vacuum, sizeof(vacuum), "%ld",
+             static_cast<long>(point.baseVacuumPWM));
+    snprintf(enc, sizeof(enc), "%ld",
+             static_cast<long>(point.encoderMilimeters));
+    snprintf(mark, sizeof(mark), "%d", static_cast<int>(point.markType));
+    snprintf(motor, sizeof(motor), "%ld",
+             static_cast<long>(point.baseMotorPWM));
+    char piece[MESSAGE_LOG_MESSAGE_SIZE];
+    size_t pp = 0;
+    if(!wire::appendListBody(piece, sizeof(piece), pp, "map_get", 'b', 's',
+                      static_cast<int>(i + 1),
+                      {vacuum, enc, mark, motor})) {
+      return CLI_ERROR_COMMAND_NOT_FOUND;
+    }
+    bodies.emplace_back(piece);
   }
+  wire::emitListFromBodySegments("map_get", bodies);
   return CLI_SUCCESS;
 }
 
-static int handleMapGetRuntime(int argc, char *argv[]) {
-  std::string out;
-  for(size_t i = 0; i < globalData.mapData.size(); i++) {
-    const MapPoint &point = globalData.mapData[i];
-    char            line[64];
-    snprintf(line, sizeof(line), "%zu,%d,%ld,%d,%ld\n", i, 0,
-             point.encoderMilimeters, point.markType, point.baseMotorPWM);
-    out += line;
-  }
-  if(!out.empty()) {
-    pushDataJsonToQueue("%s", out.c_str());
-  }
-  return CLI_SUCCESS;
-}
-
-// Runtime Commands
-// static int handleRuntimeList(int argc, char *argv[]) {
-//   std::string list;
-//   int         count = 0;
-//   char        value[64];
-//   if(getParameterValue("State", "runOnMappingMode", value, sizeof(value))) {
-//     char line[128];
-//     snprintf(line, sizeof(line), " %d - State.runOnMappingMode: %s\n",
-//     count++,
-//              value);
-//     list += line;
-//   }
-//   std::string out =
-//       "Runtime Parameters: " + std::to_string(count) + "\n" + list;
-//   pushDataJsonToQueue("%s", out.c_str());
-//   return CLI_SUCCESS;
-// }
-
-// Control Commands
-static int handlePause(int argc, char *argv[]) {
+static int wirePause() {
   RobotStateMachine::toIdle(globalData.motorDriver, globalData.vacuumDriver);
+  wire::emitSingleResponse("pause", {"ok"});
   return CLI_SUCCESS;
 }
 
-static int handleResume(int argc, char *argv[]) {
+static int wireResume() {
   if(globalData.parametersConfig.runOnMappingMode) {
     RobotStateMachine::toMapping(globalData.encoderLeftDriver,
                                  globalData.encoderRightDriver,
@@ -521,6 +505,7 @@ static int handleResume(int argc, char *argv[]) {
                                  globalData.encoderRightDriver,
                                  globalData.vacuumDriver);
   }
+  wire::emitSingleResponse("resume", {"ok"});
   return CLI_SUCCESS;
 }
 
@@ -530,7 +515,6 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
   static bool                      initialized = false;
 
   if(!initialized) {
-    // GPIO 18 is on ADC2 for ESP32-S3
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id  = ADC_UNIT_2,
         .clk_src  = ADC_RTC_CLK_SRC_DEFAULT,
@@ -542,10 +526,9 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
       return nullptr;
     }
 
-    // Configure ADC channel for GPIO 18 (ADC2_CHANNEL_7 on ESP32-S3)
     adc_oneshot_chan_cfg_t config = {
-        .atten    = ADC_ATTEN_DB_12, // 0-3.3V range
-        .bitwidth = ADC_BITWIDTH_12, // 12-bit resolution (0-4095)
+        .atten    = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
     };
     ret = adc_oneshot_config_channel(adc2_handle, ADC_CHANNEL_7, &config);
     if(ret != ESP_OK) {
@@ -561,89 +544,302 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
   return adc2_handle;
 }
 
-// static int handleBatVoltage(int argc, char *argv[]) {
-//   adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
-//   if(adc_handle == nullptr) {
-//     pushDataJsonToQueue("0.0");
-//     return CLI_SUCCESS;
-//   }
+static int wireBatVoltage(void) {
+  adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
+  char                        mv[16];
+  if(adc_handle == nullptr) {
+    snprintf(mv, sizeof(mv), "%d", 0);
+    wire::emitSingleResponse("bat_voltage", {mv});
+    return CLI_SUCCESS;
+  }
 
-//   int       adc_raw = 0;
-//   esp_err_t ret     = adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &adc_raw);
+  int       adc_raw = 0;
+  esp_err_t ret     = adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &adc_raw);
 
-//   if(ret != ESP_OK) {
-//     ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
-//              esp_err_to_name(ret));
-//     pushDataJsonToQueue("0.0");
-//     return CLI_SUCCESS;
-//   }
+  if(ret != ESP_OK) {
+    ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
+             esp_err_to_name(ret));
+    snprintf(mv, sizeof(mv), "%d", 0);
+    wire::emitSingleResponse("bat_voltage", {mv});
+    return CLI_SUCCESS;
+  }
 
-//   uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
+  uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
+  snprintf(mv, sizeof(mv), "%lu", static_cast<unsigned long>(voltage_mv));
+  wire::emitSingleResponse("bat_voltage", {mv});
+  return CLI_SUCCESS;
+}
 
-//   pushDataJsonToQueue("%d.0", voltage_mv);
-//   return CLI_SUCCESS;
-// }
+// --- Dispatch: hardcoded name → handler maps (case-insensitive keys) --------
 
-// Command map initialization function
-static std::unordered_map<std::string, CommandHandler> &getCommandMap() {
-  static std::unordered_map<std::string, CommandHandler> commandMap = {
-      // Parameter Commands
-      {"param_list",      handleParamList     },
-      {"param_get",       handleParamGet      },
-      {"param_set",       handleParamSet      },
-      // Mapping Commands
-      {"map_clear",       handleMapClear      },
-      {"map_clearFlash",  handleMapClearFlash },
-      {"map_add",         handleMapAdd        },
-      {"map_SaveRuntime", handleMapSaveRuntime},
-      {"map_get",         handleMapGet        },
-      {"map_getRuntime",  handleMapGetRuntime },
-      // Runtime Commands
-      // {"runtime_list",    handleRuntimeList   },
-      // Control Commands
-      {"pause",           handlePause         },
-      {"resume",          handleResume        },
-      // {"bat_voltage",     handleBatVoltage    },
+typedef int (*WireSingleRequestFn)(const WireCommand &w);
+
+static int wh_param_list(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireParamList();
+}
+
+static int wh_param_get(const WireCommand &w) {
+  if(w.argc < 3) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireParamGet(w);
+}
+
+static int wh_param_set(const WireCommand &w) {
+  if(w.argc < 4) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireParamSetSingle(w);
+}
+
+static int wh_map_clear(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireMapClear();
+}
+
+static int wh_map_clear_storage(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireMapClearStorage();
+}
+
+static int wh_map_save(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireMapSave();
+}
+
+static int wh_map_get(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireMapGet();
+}
+
+static int wh_pause(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wirePause();
+}
+
+static int wh_resume(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireResume();
+}
+
+static int wh_bat_voltage(const WireCommand &w) {
+  if(w.argc != 2) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return wireBatVoltage();
+}
+
+static const std::unordered_map<std::string, WireSingleRequestFn> &
+getWireSingleRequestMap() {
+  static const std::unordered_map<std::string, WireSingleRequestFn> m = {
+      {"param_list",        wh_param_list        },
+      {"param_get",         wh_param_get         },
+      {"param_set",         wh_param_set         },
+      {"map_clear",         wh_map_clear         },
+      {"map_clear_storage", wh_map_clear_storage },
+      {"map_save",          wh_map_save          },
+      {"map_get",           wh_map_get           },
+      {"pause",             wh_pause             },
+      {"resume",            wh_resume            },
+      {"bat_voltage",       wh_bat_voltage       },
   };
-  return commandMap;
+  return m;
+}
+
+typedef int (*WireLoneListBodyFn)(const WireCommand &w);
+
+static int whLone_map_add(const WireCommand &w) {
+  return wireMapAddBody(w, true);
+}
+
+static int whLone_param_set(const WireCommand &w) {
+  return wireParamSetLoneBody(w);
+}
+
+static const std::unordered_map<std::string, WireLoneListBodyFn> &
+getWireLoneListBodyMap() {
+  static const std::unordered_map<std::string, WireLoneListBodyFn> m = {
+      {"map_add",   whLone_map_add   },
+      {"param_set", whLone_param_set },
+  };
+  return m;
+}
+
+typedef int (*WireListHeaderBatchFn)(std::vector<WireCommand> &cmds,
+                                     size_t headerIdx, int C, int j);
+
+static int whBatch_map_add(std::vector<WireCommand> &cmds, size_t headerIdx,
+                           int C, int j) {
+  for(int k = 1; k <= C; k++) {
+    int r = wireMapAddBody(cmds[headerIdx + static_cast<size_t>(k)], false);
+    if(r != CLI_SUCCESS) {
+      return r;
+    }
+  }
+  std::sort(globalData.mapData.begin(), globalData.mapData.end(),
+            [](const MapPoint &a, const MapPoint &b) {
+              return a.encoderMilimeters < b.encoderMilimeters;
+            });
+  wire::emitBatchAck("map_add", j);
+  return CLI_SUCCESS;
+}
+
+static int whBatch_param_set(std::vector<WireCommand> &cmds, size_t headerIdx,
+                            int C, int j) {
+  for(int k = 1; k <= C; k++) {
+    int r = wireParamSetBodyRamOnly(
+        cmds[headerIdx + static_cast<size_t>(k)]);
+    if(r != CLI_SUCCESS) {
+      return r;
+    }
+  }
+  if(!paramSetPersistWireError()) {
+    return CLI_SUCCESS;
+  }
+  wire::emitBatchAck("param_set", j);
+  return CLI_SUCCESS;
+}
+
+static const std::unordered_map<std::string, WireListHeaderBatchFn> &
+getWireListHeaderBatchMap() {
+  static const std::unordered_map<std::string, WireListHeaderBatchFn> m = {
+      {"map_add",   whBatch_map_add   },
+      {"param_set", whBatch_param_set },
+  };
+  return m;
+}
+
+static int dispatchWireSingleRequest(const WireCommand &w) {
+  if(w.mode != 's' || w.role != 'r') {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  const auto &m = getWireSingleRequestMap();
+  auto        it = m.find(wire::commandKeyLower(w.name));
+  if(it == m.end()) {
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return it->second(w);
+}
+
+static int processWireCommands(std::vector<WireCommand> &cmds) {
+  for(size_t i = 0; i < cmds.size();) {
+    WireCommand &w = cmds[i];
+    if(w.role != 'r') {
+      i++;
+      continue;
+    }
+    if(w.mode == 'h') {
+      if(w.argc < 6) {
+        return CLI_ERROR_COMMAND_NOT_FOUND;
+      }
+      int T = atoi(w.argv[2]);
+      int C = atoi(w.argv[3]);
+      int B = atoi(w.argv[4]);
+      int j = atoi(w.argv[5]);
+      (void)T;
+      (void)B;
+      if(C < 0 || i + 1 + static_cast<size_t>(C) > cmds.size()) {
+        return CLI_ERROR_COMMAND_NOT_FOUND;
+      }
+      for(int k = 1; k <= C; k++) {
+        WireCommand &bk = cmds[i + static_cast<size_t>(k)];
+        if(bk.mode != 'b' || bk.role != 'r' ||
+           !wire::nameEq(bk.name, w.name)) {
+          return CLI_ERROR_COMMAND_NOT_FOUND;
+        }
+      }
+      const auto &hm = getWireListHeaderBatchMap();
+      auto        hit = hm.find(wire::commandKeyLower(w.name));
+      if(hit == hm.end()) {
+        return CLI_ERROR_COMMAND_NOT_FOUND;
+      }
+      int r = hit->second(cmds, i, C, j);
+      if(r != CLI_SUCCESS) {
+        return r;
+      }
+      i += 1 + static_cast<size_t>(C);
+      continue;
+    }
+    if(w.mode == 'b') {
+      const auto &bm = getWireLoneListBodyMap();
+      auto        bit = bm.find(wire::commandKeyLower(w.name));
+      if(bit == bm.end()) {
+        return CLI_ERROR_COMMAND_NOT_FOUND;
+      }
+      int r = bit->second(w);
+      i++;
+      if(r != CLI_SUCCESS) {
+        return r;
+      }
+      continue;
+    }
+    if(w.mode == 's') {
+      int r = dispatchWireSingleRequest(w);
+      i++;
+      if(r != CLI_SUCCESS) {
+        return r;
+      }
+      continue;
+    }
+    return CLI_ERROR_COMMAND_NOT_FOUND;
+  }
+  return CLI_SUCCESS;
 }
 
 int cli(char *command) {
-  const int MAX_ARGS = 16;
-  char     *argv[MAX_ARGS];
-  int       argc = 0;
-
-  char *token = strtok(command, " \t\n\r");
-  while(token != nullptr && argc < MAX_ARGS) {
-    argv[argc] = token;
-    argc++;
-    token = strtok(nullptr, " \t\n\r");
+  if(command == nullptr) {
+    return CLI_ERROR_EMPTY_COMMAND;
   }
-
-  if(token != nullptr) {
-    ESP_LOGW("CLI", "Too many arguments, max %d\n", MAX_ARGS);
-    return CLI_ERROR_TOO_MANY_ARGS;
+  while(*command != '\0' &&
+        isspace(static_cast<unsigned char>(*command))) {
+    command++;
   }
-
-  if(argc < MAX_ARGS) {
-    argv[argc] = nullptr;
-  }
-
-  if(argc == 0) {
+  if(*command == '\0') {
     ESP_LOGI("CLI", "Empty command\n");
     return CLI_ERROR_EMPTY_COMMAND;
   }
-
-  std::unordered_map<std::string, CommandHandler> &commandMap = getCommandMap();
-  auto it = commandMap.find(std::string(argv[0]));
-
-  if(it != commandMap.end()) {
-    ESP_LOGI("CLI", "Command found: %s\n", argv[0]);
-    return it->second(argc, argv);
-  } else {
-    ESP_LOGI("CLI", "Command not found: %s\n", argv[0]);
-    return CLI_ERROR_COMMAND_NOT_FOUND;
+  size_t n = strlen(command);
+  while(n > 0 && isspace(static_cast<unsigned char>(command[n - 1]))) {
+    command[--n] = '\0';
   }
+
+  std::vector<std::pair<size_t, size_t>> segs;
+  wire::splitTopLevel(command, strlen(command), ';', segs);
+  if(segs.empty()) {
+    return CLI_ERROR_EMPTY_COMMAND;
+  }
+  if(segs.size() > 48) {
+    ESP_LOGW("CLI", "Too many wire segments\n");
+    return CLI_ERROR_TOO_MANY_ARGS;
+  }
+
+  std::vector<WireCommand> cmds;
+  cmds.reserve(segs.size());
+  for(const auto &pr : segs) {
+    WireCommand wc{};
+    if(!wire::parseSegment(command + pr.first, pr.second - pr.first, wc)) {
+      ESP_LOGW("CLI", "Bad wire segment\n");
+      return CLI_ERROR_COMMAND_NOT_FOUND;
+    }
+    cmds.push_back(wc);
+  }
+
+  return processWireCommands(cmds);
 }
 
 #endif // CLI_HPP
