@@ -315,17 +315,13 @@ void mainTaskLoop(void *params) {
         //   }
         // }
 
-        if(globalData.mapData[mapPointIndex].encoderMilimeters >
-               encoderMilimetersAverage &&
+        if(encoderMilimetersAverage >
+               globalData.mapData[mapPointIndex].encoderMilimeters &&
            (mapPointIndex + 1) < globalData.mapData.size()) {
           mapPointIndex++;
-          if(alternateLedColorFlag) {
-            globalData.ledRgbDriver->setColor(0, LED_COLOR_ORANGE);
-            alternateLedColorFlag = false;
-          } else {
-            globalData.ledRgbDriver->setColor(0, LED_COLOR_CYAN);
-            alternateLedColorFlag = true;
-          }
+          alternateLedColorFlag = !alternateLedColorFlag;
+          globalData.ledRgbDriver->setColor(
+              0, alternateLedColorFlag ? LED_COLOR_ORANGE : LED_COLOR_CYAN);
           globalData.ledRgbDriver->refresh();
         }
 
@@ -505,7 +501,7 @@ void mainTaskLoop(void *params) {
       globalData.ledRgbDriver->refresh();
       globalData.motorDriver->pwmOutput(0, 0);
       globalData.vacuumDriver->pwmOutput(0);
-      vTaskDelay(100 / portTICK_PERIOD_MS);
+      vTaskDelay(250 / portTICK_PERIOD_MS);
     }
   }
 }
