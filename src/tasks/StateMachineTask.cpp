@@ -21,6 +21,13 @@ StateMachineTask::~StateMachineTask() {
   }
 }
 
+//
+// Inicia o StateMachineTask
+//
+// @param stackSizeWords Tamanho da stack em words
+// @param priority Prioridade da task
+// @param coreId Core ID
+//
 bool StateMachineTask::start(uint32_t stackSizeWords, UBaseType_t priority,
                              BaseType_t coreId) {
   if(queue == nullptr || taskHandle != nullptr) {
@@ -32,6 +39,12 @@ bool StateMachineTask::start(uint32_t stackSizeWords, UBaseType_t priority,
                                  coreId) == pdPASS;
 }
 
+//
+// Envia um evento para o StateMachineTask
+//
+// @param event Evento a ser enviado
+// @param timeoutTicks Tempo de timeout em ticks
+//
 bool StateMachineTask::postEvent(const Event &event, TickType_t timeoutTicks) {
   if(queue == nullptr) {
     return false;
@@ -40,13 +53,24 @@ bool StateMachineTask::postEvent(const Event &event, TickType_t timeoutTicks) {
   return xQueueSend(queue, &event, timeoutTicks) == pdTRUE;
 }
 
+//
+// Retorna o estado atual do StateMachineTask
+//
 RobotState StateMachineTask::getState() const { return currentState; }
 
+//
+// Entry point da task
+//
+// @param param Ponteiro para o objeto StateMachineTask
+//
 void StateMachineTask::taskEntry(void *param) {
   auto *self = static_cast<StateMachineTask *>(param);
   self->run();
 }
 
+//
+// Loop principal do StateMachineTask
+//
 void StateMachineTask::run() {
   Event event;
   gRobotState = currentState;
@@ -58,6 +82,11 @@ void StateMachineTask::run() {
   }
 }
 
+//
+// Manipula o evento recebido
+//
+// @param event Evento recebido
+//
 void StateMachineTask::handleEvent(const Event &event) {
   if(event.type == EventType::ERROR) {
     transitionTo(RobotState::IDLE);
@@ -72,17 +101,25 @@ void StateMachineTask::handleEvent(const Event &event) {
   }
 }
 
+//
+// Transiciona para o novo estado
+//
+// @param newState Novo estado para transicionar
+//
 void StateMachineTask::transitionTo(RobotState newState) {
   if(currentState == newState) {
     return;
   }
 
   currentState = newState;
-  gRobotState = newState;
+  gRobotState  = newState;
 }
 
 //
 // STATE: IDLE
+// Define para quais estados o estado IDLE pode transicionar
+//
+// @param event Evento recebido
 //
 void StateMachineTask::onIdle(const Event &event) {
   switch(event.type) {
@@ -98,6 +135,9 @@ void StateMachineTask::onIdle(const Event &event) {
 
 //
 // STATE: CALIBRATING
+// Define para quais estados o estado CALIBRATING pode transicionar
+//
+// @param event Evento recebido
 //
 void StateMachineTask::onCalibrating(const Event &event) {
   switch(event.type) {
@@ -113,6 +153,9 @@ void StateMachineTask::onCalibrating(const Event &event) {
 
 //
 // STATE: RUNNING
+// Define para quais estados o estado RUNNING pode transicionar
+//
+// @param event Evento recebido
 //
 void StateMachineTask::onRunning(const Event &event) {
   switch(event.type) {
@@ -128,6 +171,9 @@ void StateMachineTask::onRunning(const Event &event) {
 
 //
 // STATE: MAPPING
+// Define para quais estados o estado MAPPING pode transicionar
+//
+// @param event Evento recebido
 //
 void StateMachineTask::onMapping(const Event &event) {
   switch(event.type) {

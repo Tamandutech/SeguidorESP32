@@ -5,14 +5,13 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
-// Context
+// Helpers
 #include "data_types.hpp"
 // Tasks
 #include "tasks/CommunicationTask.hpp"
 #include "tasks/ControlTask.hpp"
 #include "tasks/StateMachineTask.hpp"
 
-// Global Constants
 #define ROBOT_WIDTH                 (4)
 #define WHEEL_RADIUS                (11)
 #define WHEEL_CIRCUMFERENCE         (70)
@@ -61,16 +60,11 @@ void app_main(void);
 }
 
 namespace {
-// Static lifetime active object for robot FSM.
+// Static lifetime StateMachineTask for robot FSM.
 StateMachineTask gStateMachineTask;
 } // namespace
 
 void app_main() {
-  // SETUP START
-  // Queue and task handle are initialized in constructor.
-
-  // SETUP END
-
   // TASK CREATION START
   // Stack sizes are in **words** (typically 4 bytes on ESP32-S3).
   // Largest internal RAM heap block is(~283 KiB)
