@@ -29,7 +29,7 @@ struct ParametersConfig {
   float pidKi{};
   float pidKd{};
   /// Base motor PWM magnitude while mapping (see MainTask MAPPING state).
-  /// BLE: \c Mapping.mappingMotorPWM (clamped to \c RobotEnv::MAX_MOTOR_PWM).
+  /// BLE: \c Mapping.mappingMotorPWM (clamped to \c MAX_MOTOR_PWM from env.hpp).
   int32_t mappingMotorPWM{};
 };
 
