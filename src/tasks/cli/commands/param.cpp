@@ -13,7 +13,6 @@
 #include "env.hpp"
 #include "storage/storage.hpp"
 #include "tasks/cli/cli.hpp"
-#include "tasks/cli/cli_storage.hpp"
 
 namespace cli_param {
 
@@ -139,7 +138,7 @@ bool setParameterValue(const char *className, const char *parameterName,
 
   if(strcmp(className, "State") == 0) {
     if(strcmp(parameterName, "runOnMappingMode") == 0) {
-      int val = atoi(actualValue);
+      int val                                      = atoi(actualValue);
       globalData.parametersConfig.runOnMappingMode = (val == 1);
       return true;
     }
@@ -161,7 +160,7 @@ bool setParameterValue(const char *className, const char *parameterName,
 
   if(strcmp(className, "Calibration") == 0) {
     if(strcmp(parameterName, "hardcodedCalibration") == 0) {
-      int val = atoi(actualValue);
+      int val                                          = atoi(actualValue);
       globalData.parametersConfig.hardcodedCalibration = (val == 1);
       return true;
     }
@@ -210,9 +209,10 @@ bool paramSetPersistWireError() {
     wire::emitSingleResponse("param_set", {"error", "storage not mounted"});
     return false;
   }
-  if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
+  if(storage->write(globalData.parametersConfig, PARAMETERS_STORAGE_FILE) !=
      ESP_OK) {
-    wire::emitSingleResponse("param_set", {"error", "failed to save parameters"});
+    wire::emitSingleResponse("param_set",
+                             {"error", "failed to save parameters"});
     return false;
   }
   return true;

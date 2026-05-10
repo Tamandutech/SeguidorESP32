@@ -9,9 +9,9 @@
 #include "context/GlobalData.hpp"
 #include "data_types.hpp"
 #include "storage/storage.hpp"
-#include "tasks/cli/cli_storage.hpp"
+#include "tasks/cli/cli.hpp"
 // Tasks
-#include "tasks/CommunicationTask.hpp"
+#include "tasks/BluetoothTask.hpp"
 #include "tasks/ControlTask.hpp"
 #include "tasks/StateMachineTask.hpp"
 
@@ -20,14 +20,14 @@ void app_main(void);
 }
 
 namespace {
-StateMachineTask  gStateMachineTask;
-CommunicationTask gCommunicationTask(&gStateMachineTask);
+StateMachineTask gStateMachineTask;
+BluetoothTask    gBluetoothTask(&gStateMachineTask);
 } // namespace
 
 void app_main() {
   Storage *storage = Storage::getInstance();
   if(storage->mount_storage("/data") == ESP_OK) {
-    (void)storage->read(globalData.parametersConfig, PARAMETERS_CONFIG_FILE);
+    (void)storage->read(globalData.parametersConfig, PARAMETERS_STORAGE_FILE);
     (void)storage->read_vector(globalData.mapData, MAP_STORAGE_FILE);
   }
 
@@ -38,7 +38,7 @@ void app_main() {
   (void)gStateMachineTask.start(2048, 3, 0);
   // BLE + CLI active object (Core 0, lower priority than FSM; NimBLE host is
   // pinned to core 0 in sdkconfig).
-  (void)gCommunicationTask.start(4096, 2, 0);
+  (void)gBluetoothTask.start(4096, 2, 0);
 
   // TASK CREATION END
 

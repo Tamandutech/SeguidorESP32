@@ -6,14 +6,13 @@
 #include <string>
 #include <vector>
 
-#include "esp_log.h"
 #include "esp_err.h"
+#include "esp_log.h"
 
 #include "context/GlobalData.hpp"
 #include "data_types.hpp"
 #include "storage/storage.hpp"
 #include "tasks/cli/cli.hpp"
-#include "tasks/cli/cli_storage.hpp"
 
 namespace cli_map {
 
@@ -80,8 +79,7 @@ int wireMapClearStorage() {
 
 int wireMapSave() {
   Storage  *storage = Storage::getInstance();
-  esp_err_t ret =
-      storage->write_vector(globalData.mapData, MAP_STORAGE_FILE);
+  esp_err_t ret = storage->write_vector(globalData.mapData, MAP_STORAGE_FILE);
   if(ret != ESP_OK) {
     ESP_LOGE(TAG, "map_save failed (%s)", esp_err_to_name(ret));
     wire::emitSingleResponse("map_save", {"error", "Failed to save to Flash"});

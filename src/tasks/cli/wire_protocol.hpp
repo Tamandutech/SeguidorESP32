@@ -10,30 +10,33 @@
 #include <strings.h>
 #include <vector>
 
-#include "tasks/CommunicationTask.hpp"
+#include "tasks/BluetoothTask.hpp"
 
-// Text wire protocol helpers (see wire_protocol_firmware_implementation.md).
+// Auxiliares do protocolo textual na linha (ver wire_protocol_firmware_implementation.md).
 namespace wire {
 
-constexpr int    kMaxArgs    = 24;
-constexpr size_t kArgCap     = 160;
-constexpr size_t kNameCap    = 64;
-constexpr size_t kPackBudget = 240;
-constexpr size_t kWireLineBufferSize = 2048;
+constexpr int    kMaxArgs    = 24;   ///< Número máximo de argumentos por comando.
+constexpr size_t kArgCap     = 160;  ///< Capacidade máxima de cada argv[].
+constexpr size_t kNameCap    = 64;   ///< Capacidade máxima do nome do comando.
+constexpr size_t kPackBudget = 240;  ///< Orçamento aproximado de bytes por linha em listas fragmentadas.
+constexpr size_t kWireLineBufferSize = 2048; ///< Tamanho do buffer para uma linha wire completa.
 
+/// Comando já parseado a partir de um segmento wire (`nome(...)`).
 struct Command {
-  char name[kNameCap];
-  char mode;
-  char role;
-  int  bodyIndex;
-  int  argc;
-  char argv[kMaxArgs][kArgCap];
+  char name[kNameCap]; ///< Nome do comando (ASCII).
+  char mode;           ///< Modo wire (ex.: single, batch, lista).
+  char role;           ///< Papel do segmento (ex.: cabeçalho vs corpo).
+  int  bodyIndex;      ///< Índice de corpo em modo batch; -1 se não aplicável.
+  int  argc;           ///< Número de argumentos em argv.
+  char argv[kMaxArgs][kArgCap]; ///< Argumentos decodificados (strings C).
 };
 
+/// Compara dois nomes ignorando maiúsculas e minúsculas (ASCII).
 inline bool nameEq(const char *a, const char *b) {
   return strcasecmp(a, b) == 0;
 }
 
+/// Ajusta `a` e `b` para delimitar `s[0..n)` sem espaços nas extremidades.
 inline void trimView(const char *s, size_t n, size_t &a, size_t &b) {
   a = 0;
   b = n;
@@ -45,6 +48,8 @@ inline void trimView(const char *s, size_t n, size_t &a, size_t &b) {
   }
 }
 
+/// Divide `s[0..n)` por `delim` apenas no nível mais externo: ignora delimitadores dentro de
+/// aspas ou entre parênteses aninhados. Preenche `ranges` com intervalos [início, fim) já trimados.
 inline bool splitTopLevel(const char *s, size_t n, char delim,
                           std::vector<std::pair<size_t, size_t>> &ranges) {
   ranges.clear();
@@ -83,6 +88,7 @@ inline bool splitTopLevel(const char *s, size_t n, char delim,
   return true;
 }
 
+/// Encontra o índice do `)` que fecha o `(` em `openIdx`, respeitando strings e aninhamento.
 inline bool findMatchingClose(const char *s, size_t openIdx, size_t n,
                               size_t &closeIdx) {
   int  depth = 0;
@@ -114,6 +120,8 @@ inline bool findMatchingClose(const char *s, size_t openIdx, size_t n,
   return false;
 }
 
+/// Interpreta um campo wire: remove aspas externas e trata escapes `\\` e `\"`;
+/// se não houver aspas, copia o trecho (após trim) para `out`.
 inline bool unquoteField(const char *src, size_t len, char *out, size_t outCap) {
   if(outCap == 0) {
     return false;
@@ -150,6 +158,7 @@ inline bool unquoteField(const char *src, size_t len, char *out, size_t outCap) 
   return true;
 }
 
+/// Copia o token `src[0..len)` para `cmd.argv[idx]` com a mesma semântica de `unquoteField`.
 inline bool copyTokenToArgv(Command &cmd, int idx, const char *src, size_t len) {
   if(idx < 0 || idx >= kMaxArgs) {
     return false;
@@ -157,6 +166,7 @@ inline bool copyTokenToArgv(Command &cmd, int idx, const char *src, size_t len) 
   return unquoteField(src, len, cmd.argv[idx], kArgCap);
 }
 
+/// Verifica se `s` é um inteiro decimal simples (opcionalmente com sinal), sem espaços extras.
 inline bool tokenIsPlainInteger(const char *s) {
   if(s == nullptr || s[0] == '\0') {
     return false;
@@ -176,6 +186,7 @@ inline bool tokenIsPlainInteger(const char *s) {
   return true;
 }
 
+/// Verifica se `s` é um identificador “simples”: começa com letra ou `_`, seguido de alfanuméricos ou `_`.
 inline bool tokenIsPlainIdentifier(const char *s) {
   if(s == nullptr || s[0] == '\0') {
     return false;
@@ -191,10 +202,12 @@ inline bool tokenIsPlainIdentifier(const char *s) {
   return true;
 }
 
+/// Indica se o token precisa ser emitido entre aspas na serialização wire (não é inteiro nem identificador simples).
 inline bool tokenNeedsQuotes(const char *s) {
   return !tokenIsPlainInteger(s) && !tokenIsPlainIdentifier(s);
 }
 
+/// Acrescenta `s` em `out` a partir de `pos`; aplica aspas e escapes se `tokenNeedsQuotes` for verdadeiro.
 inline bool appendWireToken(char *out, size_t outCap, size_t &pos,
                             const char *s) {
   auto appendRaw = [&](const char *r, size_t n) -> bool {
@@ -228,10 +241,12 @@ inline bool appendWireToken(char *out, size_t outCap, size_t &pos,
   return appendRaw("\"", 1);
 }
 
+/// Envia uma linha UTF-8 já montada para o cliente via Bluetooth (fila do Active Object).
 inline void emitLineUtf8(const char *wireLine) {
-  (void)commPushMessage("%s", wireLine);
+  (void)bluetoothPushMessage("%s", wireLine);
 }
 
+/// Insere uma vírgula em `buf` na posição `pos` (atualiza `pos` e termina com `'\0'`).
 inline bool appendComma(char *buf, size_t cap, size_t &pos) {
   if(pos + 2 >= cap) {
     return false;
@@ -241,6 +256,7 @@ inline bool appendComma(char *buf, size_t cap, size_t &pos) {
   return true;
 }
 
+/// Emite uma resposta única no formato `nome(s,s,partes...);` com tokens wire corretamente citados.
 inline bool emitSingleResponse(const char *cmdName,
                                const std::vector<const char *> &parts) {
   char   buf[kWireLineBufferSize];
@@ -268,6 +284,7 @@ inline bool emitSingleResponse(const char *cmdName,
   return true;
 }
 
+/// Emite confirmação de batch: mesmo formato de resposta única com índice baixo/alto e `"ok"`.
 inline void emitBatchAck(const char *cmdName, int messageIndex) {
   char lo[16];
   char hi[16];
@@ -276,6 +293,7 @@ inline void emitBatchAck(const char *cmdName, int messageIndex) {
   emitSingleResponse(cmdName, {lo, hi, "ok"});
 }
 
+/// Interpreta um segmento wire `nome(modo,role,...);` preenche `out` (modo `'b'` inclui índice de corpo).
 inline bool parseSegment(const char *seg, size_t segLen, Command &out) {
   memset(&out, 0, sizeof(out));
   out.bodyIndex = -1;
@@ -341,6 +359,7 @@ inline bool parseSegment(const char *seg, size_t segLen, Command &out) {
   return true;
 }
 
+/// Acrescenta ao buffer um corpo de lista: `cmdName(modo,role,idx,campos...);` com tokens citados se preciso.
 inline bool appendListBody(char *buf, size_t cap, size_t &pos,
                            const char *cmdName, char listMode, char listRole,
                            int idx, const std::vector<const char *> &fields) {
@@ -367,6 +386,7 @@ inline bool appendListBody(char *buf, size_t cap, size_t &pos,
   return true;
 }
 
+/// Acrescenta o cabeçalho de lista fragmentada: `nome(h,s,T,C,B,j);` (`T` total, `C` neste pacote, `B` pacotes, `j` índice).
 inline bool appendListHeader(char *buf, size_t cap, size_t &pos,
                              const char *cmdName, int T, int C, int B, int j) {
   char ts[16], cs[16], bs[16], js[16];
@@ -383,6 +403,7 @@ inline bool appendListHeader(char *buf, size_t cap, size_t &pos,
   return true;
 }
 
+/// Envia um pacote de lista: cabeçalho `(h,s,...)` seguido da concatenação dos segmentos de corpo em `bodySegments`.
 inline void flushListChunk(const char *cmdName,
                            const std::vector<std::string> &bodySegments, int T,
                            int B, int j) {
@@ -404,6 +425,7 @@ inline void flushListChunk(const char *cmdName,
   emitLineUtf8(buf);
 }
 
+/// Retorna o tamanho em bytes da linha só do cabeçalho `nome(h,s,T,C,B,j);` (orçamento usado em `emitListFromBodySegments`).
 inline size_t listHeaderWireBytes(const char *cmdName, int T, int C, int B,
                                   int j) {
   char tmp[160];
@@ -415,6 +437,7 @@ inline size_t listHeaderWireBytes(const char *cmdName, int T, int C, int B,
   return static_cast<size_t>(n);
 }
 
+/// Emite uma lista completa a partir dos segmentos de corpo `bodies`, repartindo em várias linhas se exceder `kPackBudget`.
 inline void emitListFromBodySegments(
     const char *cmdName, const std::vector<std::string> &bodies) {
   int T = static_cast<int>(bodies.size());
@@ -455,6 +478,7 @@ inline void emitListFromBodySegments(
   }
 }
 
+/// Normaliza o nome do comando para minúsculas (chave de despacho, ASCII).
 inline std::string commandKeyLower(const char *name) {
   std::string k(name);
   for(char &c : k) {
