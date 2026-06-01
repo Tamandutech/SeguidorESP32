@@ -298,13 +298,13 @@ static int wireParamList() {
   std::vector<std::string> rowWire;
   rowWire.reserve(rows.size());
   for(const Row &r : rows) {
-    char piece[MESSAGE_LOG_MESSAGE_SIZE];
+    char   piece[MESSAGE_LOG_MESSAGE_SIZE];
     size_t pp = 0;
-    char idxs[16];
+    char   idxs[16];
     snprintf(idxs, sizeof(idxs), "%d", static_cast<int>(rowWire.size()) + 1);
     if(!wire::appendListBody(piece, sizeof(piece), pp, "param_list", 'b', 's',
-                      static_cast<int>(rowWire.size()) + 1,
-                      {r.nameCol, r.valueBuf})) {
+                             static_cast<int>(rowWire.size()) + 1,
+                             {r.nameCol, r.valueBuf})) {
       return CLI_ERROR_COMMAND_NOT_FOUND;
     }
     rowWire.emplace_back(piece);
@@ -319,7 +319,7 @@ static int wireParamGet(const WireCommand &w) {
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
   ParsedReference ref;
-  ParseError pe = parseClassNameParameter(w.argv[2], ref);
+  ParseError      pe = parseClassNameParameter(w.argv[2], ref);
   if(pe != ParseError::SUCCESS) {
     ESP_LOGW("CLI", "param_get: bad ref\n");
     return CLI_ERROR_COMMAND_NOT_FOUND;
@@ -354,7 +354,8 @@ static bool paramSetPersistWireError() {
   }
   if(storage->write(globalData.parametersConfig, PARAMETERS_CONFIG_FILE) !=
      ESP_OK) {
-    wire::emitSingleResponse("param_set", {"error", "failed to save parameters"});
+    wire::emitSingleResponse("param_set",
+                             {"error", "failed to save parameters"});
     return false;
   }
   return true;
@@ -407,7 +408,8 @@ static int wireMapClearStorage() {
   esp_err_t             ret = storage->write_vector(emptyMap, MAP_STORAGE_FILE);
   if(ret != ESP_OK) {
     ESP_LOGE("CLI", "map_clear_storage failed (%s)", esp_err_to_name(ret));
-    wire::emitSingleResponse("map_clear_storage", {"error", "Failed to clear Flash"});
+    wire::emitSingleResponse("map_clear_storage",
+                             {"error", "Failed to clear Flash"});
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
   wire::emitSingleResponse("map_clear_storage", {"ok"});
@@ -431,7 +433,7 @@ static int wireMapAddBody(const WireCommand &w, bool sortAfter) {
   int32_t vacuumPWM, encMedia, offset;
   int     trackStatus = 0;
   if(!parseMapAddBodyFields(w, 3, &vacuumPWM, &encMedia, &trackStatus,
-                             &offset)) {
+                            &offset)) {
     ESP_LOGW("CLI", "map_add body: need 4 fields after idx\n");
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
@@ -476,11 +478,11 @@ static int wireMapGet() {
     snprintf(mark, sizeof(mark), "%d", static_cast<int>(point.markType));
     snprintf(motor, sizeof(motor), "%ld",
              static_cast<long>(point.baseMotorPWM));
-    char piece[MESSAGE_LOG_MESSAGE_SIZE];
+    char   piece[MESSAGE_LOG_MESSAGE_SIZE];
     size_t pp = 0;
     if(!wire::appendListBody(piece, sizeof(piece), pp, "map_get", 'b', 's',
-                      static_cast<int>(i + 1),
-                      {vacuum, enc, mark, motor})) {
+                             static_cast<int>(i + 1),
+                             {vacuum, enc, mark, motor})) {
       return CLI_ERROR_COMMAND_NOT_FOUND;
     }
     bodies.emplace_back(piece);
@@ -544,12 +546,12 @@ static adc_oneshot_unit_handle_t getBatteryAdcHandle() {
   return adc2_handle;
 }
 
-static int wireBatVoltage(void) {
+static int wireBatteryGet(void) {
   adc_oneshot_unit_handle_t adc_handle = getBatteryAdcHandle();
-  char                        mv[16];
+  char                      mv[16];
   if(adc_handle == nullptr) {
     snprintf(mv, sizeof(mv), "%d", 0);
-    wire::emitSingleResponse("bat_voltage", {mv});
+    wire::emitSingleResponse("battery_get", {mv});
     return CLI_SUCCESS;
   }
 
@@ -560,13 +562,13 @@ static int wireBatVoltage(void) {
     ESP_LOGE("CLI", "Failed to read battery voltage ADC: %s",
              esp_err_to_name(ret));
     snprintf(mv, sizeof(mv), "%d", 0);
-    wire::emitSingleResponse("bat_voltage", {mv});
+    wire::emitSingleResponse("battery_get", {mv});
     return CLI_SUCCESS;
   }
 
   uint32_t voltage_mv = (static_cast<uint32_t>(adc_raw) * 3300) / 4095;
   snprintf(mv, sizeof(mv), "%lu", static_cast<unsigned long>(voltage_mv));
-  wire::emitSingleResponse("bat_voltage", {mv});
+  wire::emitSingleResponse("battery_get", {mv});
   return CLI_SUCCESS;
 }
 
@@ -637,26 +639,26 @@ static int wh_resume(const WireCommand &w) {
   return wireResume();
 }
 
-static int wh_bat_voltage(const WireCommand &w) {
+static int wh_battery_get(const WireCommand &w) {
   if(w.argc != 2) {
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-  return wireBatVoltage();
+  return wireBatteryGet();
 }
 
 static const std::unordered_map<std::string, WireSingleRequestFn> &
 getWireSingleRequestMap() {
   static const std::unordered_map<std::string, WireSingleRequestFn> m = {
-      {"param_list",        wh_param_list        },
-      {"param_get",         wh_param_get         },
-      {"param_set",         wh_param_set         },
-      {"map_clear",         wh_map_clear         },
-      {"map_clear_storage", wh_map_clear_storage },
-      {"map_save",          wh_map_save          },
-      {"map_get",           wh_map_get           },
-      {"pause",             wh_pause             },
-      {"resume",            wh_resume            },
-      {"bat_voltage",       wh_bat_voltage       },
+      {"param_list",        wh_param_list       },
+      {"param_get",         wh_param_get        },
+      {"param_set",         wh_param_set        },
+      {"map_clear",         wh_map_clear        },
+      {"map_clear_storage", wh_map_clear_storage},
+      {"map_save",          wh_map_save         },
+      {"map_get",           wh_map_get          },
+      {"pause",             wh_pause            },
+      {"resume",            wh_resume           },
+      {"battery_get",       wh_battery_get      },
   };
   return m;
 }
@@ -674,8 +676,8 @@ static int whLone_param_set(const WireCommand &w) {
 static const std::unordered_map<std::string, WireLoneListBodyFn> &
 getWireLoneListBodyMap() {
   static const std::unordered_map<std::string, WireLoneListBodyFn> m = {
-      {"map_add",   whLone_map_add   },
-      {"param_set", whLone_param_set },
+      {"map_add",   whLone_map_add  },
+      {"param_set", whLone_param_set},
   };
   return m;
 }
@@ -700,10 +702,9 @@ static int whBatch_map_add(std::vector<WireCommand> &cmds, size_t headerIdx,
 }
 
 static int whBatch_param_set(std::vector<WireCommand> &cmds, size_t headerIdx,
-                            int C, int j) {
+                             int C, int j) {
   for(int k = 1; k <= C; k++) {
-    int r = wireParamSetBodyRamOnly(
-        cmds[headerIdx + static_cast<size_t>(k)]);
+    int r = wireParamSetBodyRamOnly(cmds[headerIdx + static_cast<size_t>(k)]);
     if(r != CLI_SUCCESS) {
       return r;
     }
@@ -718,8 +719,8 @@ static int whBatch_param_set(std::vector<WireCommand> &cmds, size_t headerIdx,
 static const std::unordered_map<std::string, WireListHeaderBatchFn> &
 getWireListHeaderBatchMap() {
   static const std::unordered_map<std::string, WireListHeaderBatchFn> m = {
-      {"map_add",   whBatch_map_add   },
-      {"param_set", whBatch_param_set },
+      {"map_add",   whBatch_map_add  },
+      {"param_set", whBatch_param_set},
   };
   return m;
 }
@@ -728,7 +729,7 @@ static int dispatchWireSingleRequest(const WireCommand &w) {
   if(w.mode != 's' || w.role != 'r') {
     return CLI_ERROR_COMMAND_NOT_FOUND;
   }
-  const auto &m = getWireSingleRequestMap();
+  const auto &m  = getWireSingleRequestMap();
   auto        it = m.find(wire::commandKeyLower(w.name));
   if(it == m.end()) {
     return CLI_ERROR_COMMAND_NOT_FOUND;
@@ -758,12 +759,11 @@ static int processWireCommands(std::vector<WireCommand> &cmds) {
       }
       for(int k = 1; k <= C; k++) {
         WireCommand &bk = cmds[i + static_cast<size_t>(k)];
-        if(bk.mode != 'b' || bk.role != 'r' ||
-           !wire::nameEq(bk.name, w.name)) {
+        if(bk.mode != 'b' || bk.role != 'r' || !wire::nameEq(bk.name, w.name)) {
           return CLI_ERROR_COMMAND_NOT_FOUND;
         }
       }
-      const auto &hm = getWireListHeaderBatchMap();
+      const auto &hm  = getWireListHeaderBatchMap();
       auto        hit = hm.find(wire::commandKeyLower(w.name));
       if(hit == hm.end()) {
         return CLI_ERROR_COMMAND_NOT_FOUND;
@@ -776,7 +776,7 @@ static int processWireCommands(std::vector<WireCommand> &cmds) {
       continue;
     }
     if(w.mode == 'b') {
-      const auto &bm = getWireLoneListBodyMap();
+      const auto &bm  = getWireLoneListBodyMap();
       auto        bit = bm.find(wire::commandKeyLower(w.name));
       if(bit == bm.end()) {
         return CLI_ERROR_COMMAND_NOT_FOUND;
@@ -805,8 +805,7 @@ int cli(char *command) {
   if(command == nullptr) {
     return CLI_ERROR_EMPTY_COMMAND;
   }
-  while(*command != '\0' &&
-        isspace(static_cast<unsigned char>(*command))) {
+  while(*command != '\0' && isspace(static_cast<unsigned char>(*command))) {
     command++;
   }
   if(*command == '\0') {
